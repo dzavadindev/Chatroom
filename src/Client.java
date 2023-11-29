@@ -1,9 +1,8 @@
 import com.fasterxml.jackson.databind.ObjectMapper;
 import messages.BasicResponse;
-import messages.BroadcastResponse;
-import messages.LoginResponse;
-import messages.OneWordResponse;
-import messages.WelcomeResponse;
+import messages.BroadcastMessage;
+import messages.SystemMessage;
+import messages.User;
 
 import java.io.*;
 import java.net.Socket;
@@ -18,6 +17,7 @@ public class Client {
 
     public Client(String address, int port) {
         try {
+            mapper = new ObjectMapper();
             socket = new Socket(address, port);
             System.out.println("Connected to the server");
 
@@ -92,7 +92,9 @@ public class Client {
     }
 
     private void help() {
-        System.out.println("!login <username> - logs you into the chat");
+        System.out.println("### !login <username> - logs you into the chat");
+        System.out.println("### !send <message> - sends a message to the chat");
+        System.out.println("### !leave - logs you out of the chat");
     }
 
     private void leave() {
@@ -116,27 +118,48 @@ public class Client {
 
         switch (type) {
             case "BROADCAST" -> {
-                BroadcastResponse response = mapper.readValue(json, BroadcastResponse.class);
+                BroadcastMessage response = mapper.readValue(json, BroadcastMessage.class);
                 System.out.println("[" + response.username() + "] : " + response.message());
             }
             case "WELCOME" -> {
-                OneWordResponse response = mapper.readValue(json, OneWordResponse.class);
-                System.out.println(response.message());
+                SystemMessage response = mapper.readValue(json, SystemMessage.class);
+                System.out.println(response.systemMessage());
             }
+            case "DSCN" -> {
+                SystemMessage response = mapper.readValue(json, SystemMessage.class);
+                System.out.println("You were disconnected from the server. " + response.systemMessage());
+            }
+            case "PONG_ERROR" -> {
+                SystemMessage response = mapper.readValue(json, SystemMessage.class);
+                System.out.println("An error occurred when performing a heartbeat. " + response.systemMessage());
+            }
+            // BYE_RESP can only respond with an ok, dont need to check
+            case "BYE_RESP" -> System.out.println("You have left the chatroom");
             case "LOGIN_RESP" -> {
                 BasicResponse response = mapper.readValue(json, BasicResponse.class);
-                if (response.code() != null) {
-                    System.out.println("Log in failed. " + response.status() + " Status code: " + response.code());
+                if (response.isError()) {
+                    System.out.println("Log in failed. " + response.getReasonMessage());
                     return;
                 }
                 System.out.println("Logged in successfully");
             }
-            case "JOINED" -> {
-                OneWordResponse response = mapper.readValue(json, OneWordResponse.class);
-                System.out.println(response.message() + " have joined!");
+            case "BROADCAST_RESP" -> {
+                BasicResponse response = mapper.readValue(json, BasicResponse.class);
+                if (response.isError()) {
+                    System.out.println("Your message was not received. " + response.getReasonMessage());
+                }
             }
-            // Add cases for other types of messages
+            case "JOINED" -> {
+                User response = mapper.readValue(json, User.class);
+                System.out.println(response.username() + " has joined!");
+            }
+            case "LEFT" -> {
+                User response = mapper.readValue(json, User.class);
+                System.out.println(response.username() + " has left the chatroom");
+            }
             default -> System.out.println("idk");
         }
     }
+
+
 }
