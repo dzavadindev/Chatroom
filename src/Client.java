@@ -1,4 +1,9 @@
 import com.fasterxml.jackson.databind.ObjectMapper;
+import messages.BasicResponse;
+import messages.BroadcastResponse;
+import messages.LoginResponse;
+import messages.OneWordResponse;
+import messages.WelcomeResponse;
 
 import java.io.*;
 import java.net.Socket;
@@ -10,6 +15,7 @@ public class Client {
     private PrintWriter out;
     private BufferedReader in;
     private ObjectMapper mapper;
+
     public Client(String address, int port) {
         try {
             socket = new Socket(address, port);
@@ -65,7 +71,7 @@ public class Client {
                         out.println("PONG");
                         continue;
                     }
-                    System.out.println("Server: " + serverMessage); // show the message from the server
+                    handleServerMessage(serverMessage);
                 }
             } catch (IOException e) {
                 System.err.println("Error in receiving message: " + e.getMessage());
@@ -99,5 +105,38 @@ public class Client {
 
     private void login(String username) {
         out.println("LOGIN {\"username\":\"" + username + "\"}");
+    }
+
+    private void handleServerMessage(String message) throws IOException {
+        String[] parts = message.split(" ", 2); // Split into two parts: type and JSON
+        if (parts.length < 2) return; // Ignore if message is not in expected format
+
+        String type = parts[0];
+        String json = parts[1];
+
+        switch (type) {
+            case "BROADCAST" -> {
+                BroadcastResponse response = mapper.readValue(json, BroadcastResponse.class);
+                System.out.println("[" + response.username() + "] : " + response.message());
+            }
+            case "WELCOME" -> {
+                OneWordResponse response = mapper.readValue(json, OneWordResponse.class);
+                System.out.println(response.message());
+            }
+            case "LOGIN_RESP" -> {
+                BasicResponse response = mapper.readValue(json, BasicResponse.class);
+                if (response.code() != null) {
+                    System.out.println("Log in failed. " + response.status() + " Status code: " + response.code());
+                    return;
+                }
+                System.out.println("Logged in successfully");
+            }
+            case "JOINED" -> {
+                OneWordResponse response = mapper.readValue(json, OneWordResponse.class);
+                System.out.println(response.message() + " have joined!");
+            }
+            // Add cases for other types of messages
+            default -> System.out.println("idk");
+        }
     }
 }
