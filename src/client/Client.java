@@ -123,17 +123,13 @@ public class Client {
                 BroadcastMessage response = mapper.readValue(json, BroadcastMessage.class);
                 System.out.println("[" + response.username() + "] : " + response.message());
             }
-            case "WELCOME" -> {
+            case "GREET" -> {
                 SystemMessage response = mapper.readValue(json, SystemMessage.class);
                 System.out.println(response.systemMessage());
             }
-            case "DSCN" -> {
+            case "DISCONNECTED" -> {
                 SystemMessage response = mapper.readValue(json, SystemMessage.class);
                 System.out.println("You were disconnected from the server. " + response.systemMessage());
-            }
-            case "PONG_ERROR" -> {
-                SystemMessage response = mapper.readValue(json, SystemMessage.class);
-                System.out.println("An error occurred when performing a heartbeat. " + response.systemMessage());
             }
             // BYE_RESP can only respond with an ok, dont need to check
             case "BYE_RESP" -> System.out.println("You have left the chatroom");
@@ -158,6 +154,10 @@ public class Client {
             case "LEFT" -> {
                 User response = mapper.readValue(json, User.class);
                 System.out.println(response.username() + " has left the chatroom");
+            }
+            case "PONG_ERROR" -> {
+                SystemMessage response = mapper.readValue(json, SystemMessage.class);
+                System.out.println("An error occurred when performing a heartbeat. " + response.systemMessage());
             }
             default -> System.out.println("idk");
         }

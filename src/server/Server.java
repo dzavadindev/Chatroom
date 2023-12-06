@@ -37,10 +37,13 @@ public class Server {
         }
     }
 
-    static class Connection implements Runnable {
+    private static class Connection implements Runnable {
         private final Socket allocatedSocket;
         private final PrintWriter out;
         private final BufferedReader in;
+        private boolean alive = true;
+        private final long HEARTBEAT_REACTION = 1000 * 5;
+        private final long HEARTBEAT_PERIOD = 1000 * 30;
 
         public Connection(Socket allocatedSocket) throws IOException {
             this.allocatedSocket = allocatedSocket;
@@ -51,27 +54,22 @@ public class Server {
         @Override
         public void run() {
             try {
-                new Thread(new Heartbeat(out)).start();
+                new Thread(new Heartbeat()).start();
                 System.out.println("New connection to the server");
                 while (!allocatedSocket.isClosed()) {
                     messageHandler(in.readLine());
                 }
-            } catch (Exception e) {
-                throw new RuntimeException(e);
+            } catch (IOException | InterruptedException e) {
+//                throw new RuntimeException(e);
+                System.err.println(e.getMessage());
             }
         }
 
-        private void messageHandler (String message) {
-            String command, contents;
-            String[] messageParts;
-            try {
-                messageParts = message.split(" ", 2);
-                command = messageParts[0];
-                contents = messageParts[1];
-            } catch (ArrayIndexOutOfBoundsException err) {
-                command = message;
-                contents = "";
-            }
+        private void messageHandler(String message) throws InterruptedException {
+            String[] messageParts = message.split(" ", 2);
+            String command = messageParts[0];
+            String contents = messageParts.length == 2 ? messageParts[1] : "";
+
             switch (command) {
                 case "PONG" -> handleHeartbeat();
                 case "LOGIN" -> System.out.println("Tried to log in");
@@ -79,30 +77,34 @@ public class Server {
             }
         }
 
-        private void handleHeartbeat () {
+        private void handleHeartbeat(){
+            alive = true;
             System.out.println("Heartbeat successful");
         }
 
-    }
-
-    static class Heartbeat implements Runnable {
-        private final PrintWriter out;
-
-        public Heartbeat(PrintWriter out) {
-            this.out = out;
-        }
-
-        @Override
-        public void run() {
-            Timer timer = new Timer("Heartbeat");
-            // Every 3 minutes execute a heartbeat.
-            timer.scheduleAtFixedRate(new HeartbeatTask(),0, (long) 1000 * 60);
-        }
-
-        class HeartbeatTask extends TimerTask {
+        private class Heartbeat implements Runnable {
             @Override
             public void run() {
-                out.println("PING");
+                Timer timer = new Timer("Heartbeat");
+                // Every X milliseconds execute a heartbeat.
+                timer.scheduleAtFixedRate(new HeartbeatTask(), 0, HEARTBEAT_PERIOD);
+            }
+
+            private class HeartbeatTask extends TimerTask {
+                @Override
+                public void run() {
+                    try {
+                        alive = false;
+                        out.println("PING");
+                        Thread.sleep(HEARTBEAT_REACTION);
+                        if (!alive) {
+                            out.println("DISCONNECTED {\"reason\": \"Heartbeat failed\"}");
+                            allocatedSocket.close();
+                        }
+                    } catch (IOException | InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
             }
         }
     }
