@@ -1,4 +1,4 @@
-package client;
+package colors;
 
 public abstract class ANSIColors {
     private static final String ANSI_RESET = "\u001B[0m";

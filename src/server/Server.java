@@ -1,5 +1,7 @@
 package server;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.*;
@@ -7,10 +9,13 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class Server {
 
     private final ObjectMapper mapper;
+    private long users = 0;
 
     public Server(int SERVER_PORT) {
         try {
@@ -37,11 +42,20 @@ public class Server {
         }
     }
 
-    private static class Connection implements Runnable {
+    public synchronized void addUser() {
+        users++;
+    }
+
+    public synchronized void removeUser() {
+        users--;
+    }
+
+    private class Connection implements Runnable {
         private final Socket allocatedSocket;
         private final PrintWriter out;
         private final BufferedReader in;
         private boolean alive = true;
+        private String username = "";
         private final long HEARTBEAT_REACTION = 1000 * 5;
         private final long HEARTBEAT_PERIOD = 1000 * 30;
 
@@ -54,32 +68,84 @@ public class Server {
         @Override
         public void run() {
             try {
-                new Thread(new Heartbeat()).start();
-                System.out.println("New connection to the server");
+                System.out.println("New connection to the server established");
+                addUser();
                 while (!allocatedSocket.isClosed()) {
                     messageHandler(in.readLine());
                 }
             } catch (IOException | InterruptedException e) {
-//                throw new RuntimeException(e);
-                System.err.println(e.getMessage());
+                throw new RuntimeException(e);
+//                System.err.println(e.getMessage());
             }
         }
 
-        private void messageHandler(String message) throws InterruptedException {
+        private void messageHandler(String message) throws InterruptedException, IOException {
             String[] messageParts = message.split(" ", 2);
-            String command = messageParts[0];
-            String contents = messageParts.length == 2 ? messageParts[1] : "";
+            String type = messageParts[0];
+            String json = messageParts.length == 2 ? messageParts[1] : "";
 
-            switch (command) {
-                case "PONG" -> handleHeartbeat();
-                case "LOGIN" -> System.out.println("Tried to log in");
-                default -> System.out.println("Unknown command");
+            try {
+                switch (type) {
+                    case "PONG" -> handleHeartbeat();
+                    case "LOGIN" -> handleLogin(json);
+                    case "BROADCAST" -> handleBroadcast(json);
+                    case "LEAVE" -> disconnect(700);
+                    default -> System.out.println("Unknown command");
+                }
+            } catch (JsonProcessingException e) {
+                out.println("PARSE_ERROR");
             }
         }
 
-        private void handleHeartbeat(){
+        private void handleBroadcast(String json) throws JsonProcessingException {
+            System.out.println(json);
+            if (username.isBlank()) {
+                sendResponse("BROADCAST", 820, "ERROR");
+                return;
+            }
+            String message = getPropertyFromJson(json, "message");
+            System.out.println("[" + this.username + "] : " + message);
+        }
+
+        private void handleLogin(String json) throws JsonProcessingException {
+            String username = getPropertyFromJson(json, "username");
+            Matcher matcher = Pattern.compile("^[a-zA-Z-_]{4,14}$").matcher(username);
+            if (matcher.find()) {
+                this.username = username;
+                new Thread(new Heartbeat()).start();
+                sendResponse("LOGIN", 800, "OK");
+            } else sendResponse("LOGIN", 811, "ERROR");
+        }
+
+        private void handleHeartbeat() {
             alive = true;
-            System.out.println("Heartbeat successful");
+        }
+
+        private void disconnect(int reason) throws IOException {
+            out.println("DISCONNECTED {\"reason\": \"" + reason + "\"}");
+            removeUser();
+            username = "";
+            allocatedSocket.close();
+        }
+
+        private void sendResponse(String to, int status, Object content) {
+            String sb = "RESPONSE {\"" +
+                    "to\":\"" +
+                    to +
+                    "\",\"" +
+                    "status\":\"" +
+                    status +
+                    "\",\"" +
+                    "content\":\"" +
+                    content +
+                    "\"}";
+            out.println(sb);
+        }
+
+        private String getPropertyFromJson(String json, String property) throws JsonProcessingException {
+            // can I enrich the exception with the "to"?
+            JsonNode node = mapper.readTree(json);
+            return node.path(property).asText();
         }
 
         private class Heartbeat implements Runnable {
@@ -97,10 +163,7 @@ public class Server {
                         alive = false;
                         out.println("PING");
                         Thread.sleep(HEARTBEAT_REACTION);
-                        if (!alive) {
-                            out.println("DISCONNECTED {\"reason\": \"Heartbeat failed\"}");
-                            allocatedSocket.close();
-                        }
+                        if (!alive) disconnect(701);
                     } catch (IOException | InterruptedException e) {
                         throw new RuntimeException(e);
                     }
@@ -109,3 +172,6 @@ public class Server {
         }
     }
 }
+
+// When sending RESPONSE, I cant really avoid double encoding, can I?
+// I need to specify that the message is of type RESPONSE, and then the JSON after it can be processed.

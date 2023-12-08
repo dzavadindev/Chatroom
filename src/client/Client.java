@@ -1,13 +1,15 @@
 package client;
 
+import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import client.messages.BasicResponse;
 import client.messages.BroadcastMessage;
 import client.messages.SystemMessage;
 import client.messages.User;
+import messages.Response;
 
 import java.io.*;
 import java.net.Socket;
+import java.util.LinkedList;
 
 public class Client {
 
@@ -58,7 +60,8 @@ public class Client {
                     menu();
                 }
             } catch (IOException e) {
-                System.err.println("Error in sending message: " + e.getMessage());
+                throw new RuntimeException(e);
+//                System.err.println("Error in sending message: " + e.getMessage());
             }
         }
     }
@@ -69,10 +72,6 @@ public class Client {
             try {
                 String serverMessage;
                 while ((serverMessage = in.readLine()) != null) { // if the input stream contains any data.
-                    if (serverMessage.equals("PING")) { // ping pong :D
-                        out.println("PONG");
-                        continue;
-                    }
                     handleServerMessage(serverMessage);
                 }
             } catch (IOException e) {
@@ -83,11 +82,15 @@ public class Client {
 
     private void menu() throws IOException {
         String option = consoleReader.readLine();
-        String[] parts = option.split(" ");
-        switch (parts[0]) {
+
+        String[] messageParts = option.split(" ", 2);
+        String command = messageParts[0];
+        String content = messageParts.length == 2 ? messageParts[1] : "";
+
+        switch (command) {
             case "!help" -> help();
-            case "!login" -> login(parts[1]);
-            case "!send" -> send(option.replace("!send ", ""));
+            case "!login" -> login(content);
+            case "!send" -> send(content);
             case "!leave" -> leave();
             default -> System.out.println("Unknown operation");
         }
@@ -104,7 +107,9 @@ public class Client {
     }
 
     private void send(String message) {
-        out.println("BROADCAST_REQ {\"message\":\"" + message + "\"}");
+        if (!message.isBlank()) {
+            out.println("BROADCAST {\"message\":\"" + message + "\"}");
+        } else System.out.println("Invalid message format");
     }
 
     private void login(String username) {
@@ -112,13 +117,16 @@ public class Client {
     }
 
     private void handleServerMessage(String message) throws IOException {
-        String[] parts = message.split(" ", 2); // Split into two parts: type and JSON
-        if (parts.length < 2) return; // Ignore if message is not in expected format
-
-        String type = parts[0];
-        String json = parts[1];
+        String[] messageParts = message.split(" ", 2);
+        String type = messageParts[0];
+        String json = messageParts.length == 2 ? messageParts[1] : "";
 
         switch (type) {
+            case "RESPONSE" -> {
+                JavaType javaType = mapper.getTypeFactory().constructParametricType(Response.class, LinkedList.class);
+                Response<String> response = mapper.readValue(json, javaType);
+                System.out.println(response);
+            }
             case "BROADCAST" -> {
                 BroadcastMessage response = mapper.readValue(json, BroadcastMessage.class);
                 System.out.println("[" + response.username() + "] : " + response.message());
@@ -131,23 +139,7 @@ public class Client {
                 SystemMessage response = mapper.readValue(json, SystemMessage.class);
                 System.out.println("You were disconnected from the server. " + response.systemMessage());
             }
-            // BYE_RESP can only respond with an ok, dont need to check
-            case "BYE_RESP" -> System.out.println("You have left the chatroom");
-            case "LOGIN_RESP" -> {
-                BasicResponse response = mapper.readValue(json, BasicResponse.class);
-                if (response.isError()) {
-                    System.out.println("Log in failed. " + response.getReasonMessage());
-                    return;
-                }
-                System.out.println("Logged in successfully");
-            }
-            case "BROADCAST_RESP" -> {
-                BasicResponse response = mapper.readValue(json, BasicResponse.class);
-                if (response.isError()) {
-                    System.out.println("Your message was not received. " + response.getReasonMessage());
-                }
-            }
-            case "JOINED" -> {
+            case "ARRIVED" -> {
                 User response = mapper.readValue(json, User.class);
                 System.out.println(response.username() + " has joined!");
             }
@@ -155,13 +147,8 @@ public class Client {
                 User response = mapper.readValue(json, User.class);
                 System.out.println(response.username() + " has left the chatroom");
             }
-            case "PONG_ERROR" -> {
-                SystemMessage response = mapper.readValue(json, SystemMessage.class);
-                System.out.println("An error occurred when performing a heartbeat. " + response.systemMessage());
-            }
+            case "PING" -> out.println("PONG");
             default -> System.out.println("idk");
         }
     }
-
-
 }
