@@ -98,7 +98,6 @@ public class Server {
         }
 
         private void handleBroadcast(String json) throws JsonProcessingException {
-            System.out.println(json);
             if (username.isBlank()) {
                 sendResponse("BROADCAST", 820, "ERROR");
                 return;

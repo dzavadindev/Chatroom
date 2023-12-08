@@ -9,6 +9,7 @@ import messages.Response;
 
 import java.io.*;
 import java.net.Socket;
+import java.util.Arrays;
 import java.util.LinkedList;
 
 public class Client {
@@ -87,6 +88,8 @@ public class Client {
         String command = messageParts[0];
         String content = messageParts.length == 2 ? messageParts[1] : "";
 
+//        System.out.println(Arrays.toString(messageParts));
+
         switch (command) {
             case "!help" -> help();
             case "!login" -> login(content);
@@ -108,11 +111,13 @@ public class Client {
 
     private void send(String message) {
         if (!message.isBlank()) {
-            out.println("BROADCAST {\"message\":\"" + message + "\"}");
+            // todo: ask how to deal with unintentional breaking of JSON structure
+            out.println("BROADCAST {\"message\":\"" + message.replace("\"", "") + "\"}");
         } else System.out.println("Invalid message format");
     }
 
     private void login(String username) {
+        if (username.contains("\""))
         out.println("LOGIN {\"username\":\"" + username + "\"}");
     }
 
@@ -123,7 +128,7 @@ public class Client {
 
         switch (type) {
             case "RESPONSE" -> {
-                JavaType javaType = mapper.getTypeFactory().constructParametricType(Response.class, LinkedList.class);
+                JavaType javaType = mapper.getTypeFactory().constructParametricType(Response.class, String.class);
                 Response<String> response = mapper.readValue(json, javaType);
                 System.out.println(response);
             }
@@ -148,7 +153,8 @@ public class Client {
                 System.out.println(response.username() + " has left the chatroom");
             }
             case "PING" -> out.println("PONG");
-            default -> System.out.println("idk");
+            case "PARSE_ERROR" -> System.out.println("Invalid JSON format");
+            default -> System.out.println("Unknown command");
         }
     }
 }
