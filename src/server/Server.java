@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.regex.Matcher;
@@ -74,8 +75,8 @@ public class Server {
                     messageHandler(in.readLine());
                 }
             } catch (IOException | InterruptedException e) {
-                throw new RuntimeException(e);
-//                System.err.println(e.getMessage());
+//                throw new RuntimeException(e);
+                System.err.println(e.getMessage());
             }
         }
 

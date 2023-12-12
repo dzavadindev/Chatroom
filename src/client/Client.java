@@ -107,6 +107,7 @@ public class Client {
 
     private void leave() {
         out.println("BYE");
+        System.out.println("Bye bye!");
     }
 
     private void send(String message) {
@@ -117,7 +118,10 @@ public class Client {
     }
 
     private void login(String username) {
-        if (username.contains("\""))
+//        if (username.contains("\"")) {
+//            System.out.println("");
+//            return;
+//        }
         out.println("LOGIN {\"username\":\"" + username + "\"}");
     }
 
