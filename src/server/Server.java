@@ -3,6 +3,7 @@ package server;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import messages.Response;
 
 import java.io.*;
 import java.net.ServerSocket;
@@ -16,6 +17,7 @@ public class Server {
 
     private final ObjectMapper mapper;
     private long users = 0;
+    private final String greeting = "Welcome to the chatroom! Please login to start chatting!";
 
     public Server(int SERVER_PORT) {
         try {
@@ -69,13 +71,14 @@ public class Server {
         public void run() {
             try {
                 System.out.println("New connection to the server established");
+                out.println("GREET {\"message\": \"" + greeting + "\"}");
                 addUser();
                 while (!allocatedSocket.isClosed()) {
                     messageHandler(in.readLine());
                 }
             } catch (IOException | InterruptedException e) {
-                throw new RuntimeException(e);
-//                System.err.println(e.getMessage());
+//                throw new RuntimeException(e);
+                System.err.println(e.getMessage());
             }
         }
 
@@ -90,7 +93,7 @@ public class Server {
                     case "LOGIN" -> handleLogin(json);
                     case "BROADCAST" -> handleBroadcast(json);
                     case "LEAVE" -> disconnect(700);
-                    default -> System.out.println("Unknown command");
+                    default -> out.println("UNKNOWN_ACTION");
                 }
             } catch (JsonProcessingException e) {
                 out.println("PARSE_ERROR");
@@ -108,12 +111,17 @@ public class Server {
         }
 
         private void handleLogin(String json) throws JsonProcessingException {
+            if (!username.isBlank()) {
+                sendResponse("LOGIN", 810, "ERROR");
+                return;
+            }
             String username = getPropertyFromJson(json, "username");
             Matcher matcher = Pattern.compile("^[a-zA-Z-_]{4,14}$").matcher(username);
             if (matcher.find()) {
                 this.username = username;
                 new Thread(new Heartbeat()).start();
                 sendResponse("LOGIN", 800, "OK");
+                // todo: make a set of Connections, filter to exclude the sender and do things
             } else sendResponse("LOGIN", 811, "ERROR");
         }
 
@@ -122,24 +130,14 @@ public class Server {
         }
 
         private void disconnect(int reason) throws IOException {
-            out.println("DISCONNECTED {\"reason\": \"" + reason + "\"}");
+            out.println("DISCONNECTED {\"message\": \"" + reason + "\"}");
             removeUser();
             username = "";
             allocatedSocket.close();
         }
 
-        private void sendResponse(String to, int status, Object content) {
-            String sb = "RESPONSE {\"" +
-                    "to\":\"" +
-                    to +
-                    "\",\"" +
-                    "status\":\"" +
-                    status +
-                    "\",\"" +
-                    "content\":\"" +
-                    content +
-                    "\"}";
-            out.println(sb);
+        private void sendResponse(String to, int status, Object content) throws JsonProcessingException {
+            out.println("RESPONSE " + mapper.writeValueAsString(new Response<>(content, status, to)));
         }
 
         private String getPropertyFromJson(String json, String property) throws JsonProcessingException {
@@ -173,5 +171,4 @@ public class Server {
     }
 }
 
-// When sending RESPONSE, I cant really avoid double encoding, can I?
-// I need to specify that the message is of type RESPONSE, and then the JSON after it can be processed.
+// actual TODO: private message, list of users, guessing game

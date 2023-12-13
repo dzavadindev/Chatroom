@@ -2,14 +2,15 @@ package client;
 
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import client.messages.BroadcastMessage;
-import client.messages.SystemMessage;
-import client.messages.User;
+import messages.BroadcastMessage;
+import messages.SystemMessage;
 import messages.Response;
 
 import java.io.*;
 import java.net.Socket;
-import java.util.LinkedList;
+import java.net.SocketException;
+
+import static colors.ANSIColors.*;
 
 public class Client {
 
@@ -74,7 +75,12 @@ public class Client {
                 while ((serverMessage = in.readLine()) != null) { // if the input stream contains any data.
                     handleServerMessage(serverMessage);
                 }
-            } catch (IOException e) {
+            } catch (SocketException se) {
+                System.err.println("Connection closed, exiting...");
+                System.exit(0);
+            }
+            catch (IOException e) {
+//                throw new RuntimeException(e);
                 System.err.println("Error in receiving message: " + e.getMessage());
             }
         }
@@ -103,7 +109,7 @@ public class Client {
     }
 
     private void leave() {
-        out.println("BYE");
+        out.println("LEAVE");
     }
 
     private void send(String message) {
@@ -116,6 +122,39 @@ public class Client {
         out.println("LOGIN {\"username\":\"" + username + "\"}");
     }
 
+    private void handleResponseMessages(Response<?> response) {
+        switch (response.status()) {
+            case 800 -> successfulMessagesHandler(response);
+            case 810 -> System.err.println("You can't log in twice");
+            case 811 -> System.err.println("Invalid username format");
+            case 820 -> System.err.println("Can't send messages anonymously");
+            case 700 -> System.err.println("Pong timeout");
+            case 701 -> System.err.println("Unterminated message");
+            default -> System.err.println("Server responded with an unknown status code");
+        }
+    }
+
+    private String findDisconnectionReason(String code) {
+        switch (code) {
+            case "700" -> {
+                return "Bye bye!";
+            }
+            case "701" -> {
+                return "Disconnected due to inactivity";
+            }
+        }
+        return "Unknown code";
+    }
+
+    private void successfulMessagesHandler(Response<?> response) {
+        // this method doesn't do anything yet, as the server doesn't make use of the
+        // possibility of any data type being transferred with the Response<> message
+        switch (response.to()) {
+            case "LOGIN" -> System.out.println("Logged in successfully!");
+            default -> System.out.println("OK status received. Unknown destination of the response: " + response.to());
+        }
+    }
+
     private void handleServerMessage(String message) throws IOException {
         String[] messageParts = message.split(" ", 2);
         String type = messageParts[0];
@@ -123,32 +162,36 @@ public class Client {
 
         switch (type) {
             case "RESPONSE" -> {
-                JavaType javaType = mapper.getTypeFactory().constructParametricType(Response.class, LinkedList.class);
-                Response<String> response = mapper.readValue(json, javaType);
-                System.out.println(response);
+                JavaType javaType = mapper.getTypeFactory().constructParametricType(Response.class, Object.class);
+                Response<Object> response = mapper.readValue(json, javaType);
+                handleResponseMessages(response);
             }
-            case "BROADCAST" -> {
-                BroadcastMessage response = mapper.readValue(json, BroadcastMessage.class);
-                System.out.println("[" + response.username() + "] : " + response.message());
+            case "DISCONNECTED" -> {
+                SystemMessage response = mapper.readValue(json, SystemMessage.class);
+                String disconnectionReason = findDisconnectionReason(response.systemMessage());
+                System.out.println("You were disconnected from the server. " + disconnectionReason);
+                socket.close();
             }
             case "GREET" -> {
                 SystemMessage response = mapper.readValue(json, SystemMessage.class);
                 System.out.println(response.systemMessage());
             }
-            case "DISCONNECTED" -> {
-                SystemMessage response = mapper.readValue(json, SystemMessage.class);
-                System.out.println("You were disconnected from the server. " + response.systemMessage());
-            }
             case "ARRIVED" -> {
-                User response = mapper.readValue(json, User.class);
-                System.out.println(response.username() + " has joined!");
+                SystemMessage response = mapper.readValue(json, SystemMessage.class);
+                System.out.println(response.systemMessage() + " has joined!"); // Need to send to all
             }
             case "LEFT" -> {
-                User response = mapper.readValue(json, User.class);
-                System.out.println(response.username() + " has left the chatroom");
+                SystemMessage response = mapper.readValue(json, SystemMessage.class);
+                System.out.println(response.systemMessage() + " has left the chatroom"); // Need to send to all
+            }
+            case "BROADCAST" -> {
+                BroadcastMessage response = mapper.readValue(json, BroadcastMessage.class);
+                out.println("[" + response.username() + "] : " + response.message()); // Need to send to all
             }
             case "PING" -> out.println("PONG");
-            default -> System.out.println("idk");
+            case "PARSE_ERROR" -> coloredPrint(ANSI_MAGENTA, "Parse error occurred processing your message");
+            case "UNKNOWN_COMMAND" -> coloredPrint(ANSI_MAGENTA, "The send command is unknown to the server");
+            default -> coloredPrint(ANSI_MAGENTA, "Unknown message type from the server");
         }
     }
 }
