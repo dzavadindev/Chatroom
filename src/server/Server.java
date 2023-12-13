@@ -8,6 +8,7 @@ import messages.Response;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.regex.Matcher;
@@ -101,7 +102,6 @@ public class Server {
         }
 
         private void handleBroadcast(String json) throws JsonProcessingException {
-            System.out.println(json);
             if (username.isBlank()) {
                 sendResponse("BROADCAST", 820, "ERROR");
                 return;

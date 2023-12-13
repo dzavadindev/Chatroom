@@ -11,6 +11,8 @@ import java.net.Socket;
 import java.net.SocketException;
 
 import static colors.ANSIColors.*;
+import java.util.Arrays;
+import java.util.LinkedList;
 
 public class Client {
 
@@ -110,15 +112,21 @@ public class Client {
 
     private void leave() {
         out.println("LEAVE");
+        System.out.println("Bye bye!");
     }
 
     private void send(String message) {
         if (!message.isBlank()) {
-            out.println("BROADCAST {\"message\":\"" + message + "\"}");
+            // todo: ask how to deal with unintentional breaking of JSON structure
+            out.println("BROADCAST {\"message\":\"" + message.replace("\"", "") + "\"}");
         } else System.out.println("Invalid message format");
     }
 
     private void login(String username) {
+//        if (username.contains("\"")) {
+//            System.out.println("");
+//            return;
+//        }
         out.println("LOGIN {\"username\":\"" + username + "\"}");
     }
 
