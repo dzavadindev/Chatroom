@@ -1,5 +1,6 @@
 package client;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import messages.BroadcastMessage;
@@ -9,10 +10,9 @@ import messages.Response;
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
+import java.util.ArrayList;
 
 import static colors.ANSIColors.*;
-import java.util.Arrays;
-import java.util.LinkedList;
 
 public class Client {
 
@@ -80,10 +80,9 @@ public class Client {
             } catch (SocketException se) {
                 System.err.println("Connection closed, exiting...");
                 System.exit(0);
-            }
-            catch (IOException e) {
-//                throw new RuntimeException(e);
-                System.err.println("Error in receiving message: " + e.getMessage());
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+//                System.err.println("Error in receiving message: " + e.getMessage());
             }
         }
     }
@@ -94,12 +93,15 @@ public class Client {
         String[] messageParts = option.split(" ", 2);
         String command = messageParts[0];
         String content = messageParts.length == 2 ? messageParts[1] : "";
+        content = content.replace("\"", "\\\"");
 
         switch (command) {
             case "!help" -> help();
             case "!login" -> login(content);
             case "!send" -> send(content);
             case "!leave" -> leave();
+            case "!direct" -> direct(content);
+            case "!list" -> list();
             default -> System.out.println("Unknown operation");
         }
     }
@@ -108,6 +110,8 @@ public class Client {
         System.out.println("### !login <username> - logs you into the chat");
         System.out.println("### !send <message> - sends a message to the chat");
         System.out.println("### !leave - logs you out of the chat");
+        System.out.println("### !direct <username> <message> - sends a private message to a user");
+        System.out.println("### !list - shows all the users that are currently online");
     }
 
     private void leave() {
@@ -115,27 +119,42 @@ public class Client {
         System.out.println("Bye bye!");
     }
 
-    private void send(String message) {
+    private void direct(String data) throws JsonProcessingException {
+        String[] tuple = data.split(" ", 2);
+        String receiver = tuple[0];
+        String message = tuple[1];
+        out.println("PRIVATE " + mapper.writeValueAsString(new BroadcastMessage(receiver, message)));
+    }
+
+    private void list() {
+        out.println("LIST");
+    }
+
+    private void send(String message) throws JsonProcessingException {
         if (!message.isBlank()) {
-            // todo: ask how to deal with unintentional breaking of JSON structure
-            out.println("BROADCAST {\"message\":\"" + message.replace("\"", "") + "\"}");
+            out.println("BROADCAST " + mapper.writeValueAsString(new BroadcastMessage("", message)));
         } else System.out.println("Invalid message format");
     }
 
     private void login(String username) {
-//        if (username.contains("\"")) {
-//            System.out.println("");
-//            return;
-//        }
         out.println("LOGIN {\"username\":\"" + username + "\"}");
     }
 
     private void handleResponseMessages(Response<?> response) {
         switch (response.status()) {
             case 800 -> successfulMessagesHandler(response);
+            // 810-819 reserved for login codes
             case 810 -> System.err.println("You can't log in twice");
             case 811 -> System.err.println("Invalid username format");
+            // 820-829 reserved for message related codes
             case 820 -> System.err.println("Can't send messages anonymously");
+            case 821 -> System.err.println("Cannot find user with name " + response.content());
+            case 822 -> System.err.println("Cannot send a private message to yourself");
+            // 830-839 reserved for heartbeat codes
+            // case 830 -> System.err.println("Pong without ping"); TODO: THE PING/PONG ERROR
+            // 840-849 reserved for user list related errors
+            case 840 -> System.err.println("To view the list of users you need to log in");
+            // 700-710 reserved for disconnection reasons
             case 700 -> System.err.println("Pong timeout");
             case 701 -> System.err.println("Unterminated message");
             default -> System.err.println("Server responded with an unknown status code");
@@ -159,6 +178,8 @@ public class Client {
         // possibility of any data type being transferred with the Response<> message
         switch (response.to()) {
             case "LOGIN" -> System.out.println("Logged in successfully!");
+//            case "LIST" -> System.out.println(((ArrayList<String>) response.content()).forEach(user -> System.out.println(user))); // TODO: Cast the things to preform specific actions on them
+            case "LIST" -> System.out.println(response.content());
             default -> System.out.println("OK status received. Unknown destination of the response: " + response.to());
         }
     }
@@ -176,25 +197,29 @@ public class Client {
             }
             case "DISCONNECTED" -> {
                 SystemMessage response = mapper.readValue(json, SystemMessage.class);
-                String disconnectionReason = findDisconnectionReason(response.systemMessage());
+                String disconnectionReason = findDisconnectionReason(response.message());
                 System.out.println("You were disconnected from the server. " + disconnectionReason);
                 socket.close();
             }
             case "GREET" -> {
                 SystemMessage response = mapper.readValue(json, SystemMessage.class);
-                System.out.println(response.systemMessage());
+                System.out.println(response.message());
             }
             case "ARRIVED" -> {
                 SystemMessage response = mapper.readValue(json, SystemMessage.class);
-                System.out.println(response.systemMessage() + " has joined!"); // Need to send to all
+                System.out.println(response.message() + " has joined!");
             }
             case "LEFT" -> {
                 SystemMessage response = mapper.readValue(json, SystemMessage.class);
-                System.out.println(response.systemMessage() + " has left the chatroom"); // Need to send to all
+                System.out.println(response.message() + " has left the chatroom");
             }
             case "BROADCAST" -> {
                 BroadcastMessage response = mapper.readValue(json, BroadcastMessage.class);
-                out.println("[" + response.username() + "] : " + response.message()); // Need to send to all
+                System.out.println("[" + response.username() + "] : " + response.message());
+            }
+            case "PRIVATE" -> {
+                BroadcastMessage response = mapper.readValue(json, BroadcastMessage.class);
+                coloredPrint(ANSI_CYAN, "[" + response.username() + "] : " + response.message());
             }
             case "PING" -> out.println("PONG");
             case "PARSE_ERROR" -> coloredPrint(ANSI_MAGENTA, "Parse error occurred processing your message");

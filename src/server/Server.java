@@ -3,21 +3,21 @@ package server;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import messages.BroadcastMessage;
 import messages.Response;
+import messages.SystemMessage;
 
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.net.SocketException;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class Server {
-
     private final ObjectMapper mapper;
-    private long users = 0;
+    private final Set<Connection> users = new HashSet<>();
     private final String greeting = "Welcome to the chatroom! Please login to start chatting!";
 
     public Server(int SERVER_PORT) {
@@ -38,19 +38,12 @@ public class Server {
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             while (true) {
                 Socket socket = serverSocket.accept();
-                new Thread(new Connection(socket)).start();
+                Connection connection = new Connection(socket);
+                new Thread(connection).start();
             }
         } catch (Exception err) {
             throw new RuntimeException(err);
         }
-    }
-
-    public synchronized void addUser() {
-        users++;
-    }
-
-    public synchronized void removeUser() {
-        users--;
     }
 
     private class Connection implements Runnable {
@@ -72,8 +65,7 @@ public class Server {
         public void run() {
             try {
                 System.out.println("New connection to the server established");
-                out.println("GREET {\"message\": \"" + greeting + "\"}");
-                addUser();
+                out.println("GREET " + mapper.writeValueAsString(new SystemMessage(greeting)));
                 while (!allocatedSocket.isClosed()) {
                     messageHandler(in.readLine());
                 }
@@ -93,6 +85,8 @@ public class Server {
                     case "PONG" -> handleHeartbeat();
                     case "LOGIN" -> handleLogin(json);
                     case "BROADCAST" -> handleBroadcast(json);
+                    case "PRIVATE" -> handlePrivate(json);
+                    case "LIST" -> handleList();
                     case "LEAVE" -> disconnect(700);
                     default -> out.println("UNKNOWN_ACTION");
                 }
@@ -101,13 +95,51 @@ public class Server {
             }
         }
 
+        private void handleList() throws JsonProcessingException {
+            List<String> online = users.stream()
+                    .filter(user -> !this.username.equals(user.username))
+                    .map(user -> user.username)
+                    .collect(Collectors.toList());
+            sendResponse("LIST", 800, online);
+        }
+
+        private void handlePrivate(String json) throws JsonProcessingException {
+            if (this.username.isBlank()) {
+                sendResponse("BROADCAST", 820, "ERROR");
+                return;
+            }
+            String message = getPropertyFromJson(json, "message");
+            String receiverName = getPropertyFromJson(json, "username");
+            if (this.username.equals(receiverName)) {
+                sendResponse("BROADCAST", 822, "ERROR");
+                return;
+            }
+            Connection receiver = users.stream()
+                    .filter(user -> user.username.equals(receiverName))
+                    .findAny()
+                    .orElse(null);
+            if (receiver == null) {
+                sendResponse("BROADCAST", 821, receiverName);
+                return;
+            }
+            receiver.out.println("PRIVATE " + mapper.writeValueAsString(new BroadcastMessage(this.username, message)));
+        }
+
         private void handleBroadcast(String json) throws JsonProcessingException {
             if (username.isBlank()) {
                 sendResponse("BROADCAST", 820, "ERROR");
                 return;
             }
             String message = getPropertyFromJson(json, "message");
-            System.out.println("[" + this.username + "] : " + message);
+            users.stream()
+                    .filter(user -> !user.username.equals(this.username))
+                    .forEach(user -> {
+                        try {
+                            user.out.println("BROADCAST " + mapper.writeValueAsString(new BroadcastMessage(this.username, message)));
+                        } catch (JsonProcessingException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
         }
 
         private void handleLogin(String json) throws JsonProcessingException {
@@ -121,18 +153,32 @@ public class Server {
                 this.username = username;
                 new Thread(new Heartbeat()).start();
                 sendResponse("LOGIN", 800, "OK");
-                // todo: make a set of Connections, filter to exclude the sender and do things
+                users.forEach(user -> {
+                    try {
+                        user.out.println("ARRIVED " + mapper.writeValueAsString(new SystemMessage(this.username)));
+                    } catch (JsonProcessingException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+                users.add(this);
             } else sendResponse("LOGIN", 811, "ERROR");
         }
 
         private void handleHeartbeat() {
+            // TODO: is the PONG send without PING is an actual error code? It doesn't do anything???
             alive = true;
         }
 
         private void disconnect(int reason) throws IOException {
-            out.println("DISCONNECTED {\"message\": \"" + reason + "\"}");
-            removeUser();
-            username = "";
+            out.println("DISCONNECTED " + mapper.writeValueAsString(new SystemMessage(String.valueOf(reason))));
+            users.remove(this);
+            users.forEach(user -> {
+                try {
+                    user.out.println("LEFT " + mapper.writeValueAsString(new SystemMessage(this.username)));
+                } catch (JsonProcessingException e) {
+                    throw new RuntimeException(e);
+                }
+            });
             allocatedSocket.close();
         }
 
@@ -141,7 +187,6 @@ public class Server {
         }
 
         private String getPropertyFromJson(String json, String property) throws JsonProcessingException {
-            // can I enrich the exception with the "to"?
             JsonNode node = mapper.readTree(json);
             return node.path(property).asText();
         }
@@ -171,4 +216,4 @@ public class Server {
     }
 }
 
-// actual TODO: private message, list of users, guessing game
+// actual TODO: guessing game
