@@ -46,7 +46,7 @@ public class Server {
         }
     }
 
-    private class Connection implements Runnable {
+    public class Connection implements Runnable {
         private final Socket allocatedSocket;
         private final PrintWriter out;
         private final BufferedReader in;
@@ -215,5 +215,3 @@ public class Server {
         }
     }
 }
-
-// actual TODO: guessing game

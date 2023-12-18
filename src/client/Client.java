@@ -10,7 +10,6 @@ import messages.Response;
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
-import java.util.ArrayList;
 
 import static colors.ANSIColors.*;
 
@@ -112,6 +111,7 @@ public class Client {
         System.out.println("### !leave - logs you out of the chat");
         System.out.println("### !direct <username> <message> - sends a private message to a user");
         System.out.println("### !list - shows all the users that are currently online");
+        System.out.println("### !play - enter a number guessing game is one currently is active");
     }
 
     private void leave() {
@@ -154,6 +154,16 @@ public class Client {
             // case 830 -> System.err.println("Pong without ping"); TODO: THE PING/PONG ERROR
             // 840-849 reserved for user list related errors
             case 840 -> System.err.println("To view the list of users you need to log in");
+            // 850-859 reserved for game related errors
+            case 850 -> System.err.println("You need to log in before starting a game");
+            case 851 ->
+                    System.err.println("You can't create a lobby with name " + response.content() + ". Use only latin letters and numbers");
+            case 852 -> System.err.println("Can't join a game without logging in");
+            case 853 -> System.err.println("You are not in a game to send your guesses to");
+            case 854 -> System.err.println("You can't send a guess for a game when not logged in");
+            case 855 -> System.err.println("Invalid guess provided. Only numbers are acceptable");
+            case 856 ->
+                    System.err.println("Your guess in not in the games range: " + response.content()); // response.content() is the game range
             // 700-710 reserved for disconnection reasons
             case 700 -> System.err.println("Pong timeout");
             case 701 -> System.err.println("Unterminated message");
@@ -174,11 +184,15 @@ public class Client {
     }
 
     private void successfulMessagesHandler(Response<?> response) {
-        // this method doesn't do anything yet, as the server doesn't make use of the
-        // possibility of any data type being transferred with the Response<> message
         switch (response.to()) {
+            // the response.content() that is received at this point is an Object instance
+            // thus it can be anything. For that reason casting is required when receiving
+            // any input. This is working on the fact that the client knows what type of
+            // command was received
+
+            // case "COMMAND" -> System.out.println(((ArrayList<String>) response.content())
+
             case "LOGIN" -> System.out.println("Logged in successfully!");
-//            case "LIST" -> System.out.println(((ArrayList<String>) response.content()).forEach(user -> System.out.println(user))); // TODO: Cast the things to preform specific actions on them
             case "LIST" -> System.out.println(response.content());
             default -> System.out.println("OK status received. Unknown destination of the response: " + response.to());
         }
