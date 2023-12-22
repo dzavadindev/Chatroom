@@ -3,6 +3,7 @@ package server;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import features.GuessingGame;
 import messages.BroadcastMessage;
 import messages.Response;
 import messages.SystemMessage;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 public class Server {
     private final ObjectMapper mapper;
     private final Set<Connection> users = new HashSet<>();
+    private final Set<GuessingGame> activeGames = new HashSet<>();
     private final String greeting = "Welcome to the chatroom! Please login to start chatting!";
 
     public Server(int SERVER_PORT) {
@@ -87,12 +89,33 @@ public class Server {
                     case "BROADCAST" -> handleBroadcast(json);
                     case "PRIVATE" -> handlePrivate(json);
                     case "LIST" -> handleList();
+                    case "GAME_LAUNCH" -> handleGameLaunch(json);
                     case "LEAVE" -> disconnect(700);
                     default -> out.println("UNKNOWN_ACTION");
                 }
             } catch (JsonProcessingException e) {
                 out.println("PARSE_ERROR");
             }
+        }
+
+        private void handleGameLaunch(String json) throws JsonProcessingException {
+            String lobbyName = getPropertyFromJson(json, "lobby");
+            GuessingGame newGame = new GuessingGame(out, lobbyName, 1, 50);
+            activeGames.add(newGame);
+             /*
+             Every game is a separate thread, handling messages that contain "GAME" in it
+             messages with "GAME" in it need to be forwarded to the corresponding game (lobby in message).
+             The forwarding is done by getting the list of games, and checking if the
+             list of players contains the one player that send the request.
+
+             DESIGN:
+             Along the game containing the players make the user contain what game they are in,
+             storing either "" or the name of the lobby this allows for reducing the computations
+             on the server side.
+             (going through every active game and check for the presence of a user in it)
+
+             TODO create a sequence diagram for the flow of a game
+             */
         }
 
         private void handleList() throws JsonProcessingException {
@@ -215,3 +238,10 @@ public class Server {
         }
     }
 }
+
+// File Transfer is a separate thread.
+// Open a new port and create a new server socket on it, PURELY to handle file transfer.
+// When creating a connection to the FileTransfer socket, create tags (mark in bytes S or R).
+// To know who is the sender and receiver, use unique UUID for the transfer session (created in sender).
+// To understand the flow, follow the diagram in the slides of w5 (Michel's diagram)
+// Calculating checksums - hashing alogs: MD5, SHA1

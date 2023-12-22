@@ -156,14 +156,14 @@ public class Client {
             case 840 -> System.err.println("To view the list of users you need to log in");
             // 850-859 reserved for game related errors
             case 850 -> System.err.println("You need to log in before starting a game");
-            case 851 ->
-                    System.err.println("You can't create a lobby with name " + response.content() + ". Use only latin letters and numbers");
+            case 851 -> System.err.println("You can't create a lobby with name " + response.content() + ". Use only latin letters and numbers");
             case 852 -> System.err.println("Can't join a game without logging in");
             case 853 -> System.err.println("You are not in a game to send your guesses to");
             case 854 -> System.err.println("You can't send a guess for a game when not logged in");
             case 855 -> System.err.println("Invalid guess provided. Only numbers are acceptable");
-            case 856 ->
-                    System.err.println("Your guess in not in the games range: " + response.content()); // response.content() is the game range
+            case 856 -> System.err.println("Your guess in not in the games range: " + response.content()); // response.content() is the game range
+            // 860-869 reserved for file transfer related errors
+            case 860 -> System.err.println();
             // 700-710 reserved for disconnection reasons
             case 700 -> System.err.println("Pong timeout");
             case 701 -> System.err.println("Unterminated message");
