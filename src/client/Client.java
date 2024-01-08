@@ -4,14 +4,17 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import messages.BroadcastMessage;
+import messages.Leaderboard;
 import messages.SystemMessage;
 import messages.Response;
 
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
+import java.util.Map.Entry;
 
 import static colors.ANSIColors.*;
+import static util.Util.*;
 
 public class Client {
 
@@ -20,6 +23,7 @@ public class Client {
     private PrintWriter out;
     private BufferedReader in;
     private ObjectMapper mapper;
+    private String gameLobby = "";
 
     public Client(String address, int port) {
         try {
@@ -101,6 +105,9 @@ public class Client {
             case "!leave" -> leave();
             case "!direct" -> direct(content);
             case "!list" -> list();
+            case "!create" -> create(content);
+            case "!join" -> join(content);
+            case "!guess" -> guess(content);
             default -> System.out.println("Unknown operation");
         }
     }
@@ -111,7 +118,24 @@ public class Client {
         System.out.println("### !leave - logs you out of the chat");
         System.out.println("### !direct <username> <message> - sends a private message to a user");
         System.out.println("### !list - shows all the users that are currently online");
-        System.out.println("### !play - enter a number guessing game is one currently is active");
+        System.out.println("### !create <lobby name> - create a lobby for guessing game");
+        System.out.println("### !join <lobby name> - enter a number guessing game is one currently is active");
+        System.out.println("### !guess <guess> - enter your guess for the number guessing game if you're in a game");
+    }
+
+
+    private void create(String lobby) {
+        out.println("GAME_LAUNCH " + wrapInJson("lobby", lobby));
+        gameLobby = lobby;
+    }
+
+    private void join(String lobby) {
+        out.println("GAME_JOIN " + wrapInJson("lobby", lobby));
+        gameLobby = lobby;
+    }
+
+    private void guess(String guess) throws JsonProcessingException {
+        out.println("GAME_GUESS " + mapper.writeValueAsString(guess));
     }
 
     private void leave() {
@@ -164,6 +188,10 @@ public class Client {
             case 855 -> System.err.println("Invalid guess provided. Only numbers are acceptable");
             case 856 ->
                     System.err.println("Your guess in not in the games range: " + response.content()); // response.content() is the game range
+            case 857 -> System.err.println("Can't join two games at the same time");
+            case 858 -> System.err.println("Game" + response.content() + "not found");
+            // 860-869 reserved for file transfer related errors
+            case 860 -> System.err.println();
             // 700-710 reserved for disconnection reasons
             case 700 -> System.err.println("Pong timeout");
             case 701 -> System.err.println("Unterminated message");
@@ -186,7 +214,7 @@ public class Client {
     private void successfulMessagesHandler(Response<?> response) {
         switch (response.to()) {
             // the response.content() that is received at this point is an Object instance
-            // thus it can be anything. For that reason casting is required when receiving
+            // thus it can be anything. For that reason, casting is required when receiving
             // any input. This is working on the fact that the client knows what type of
             // command was received
 
@@ -194,6 +222,7 @@ public class Client {
 
             case "LOGIN" -> System.out.println("Logged in successfully!");
             case "LIST" -> System.out.println(response.content());
+            case "GAME_LAUNCH" -> System.out.println("Game started!");
             default -> System.out.println("OK status received. Unknown destination of the response: " + response.to());
         }
     }
@@ -236,9 +265,22 @@ public class Client {
                 coloredPrint(ANSI_CYAN, "[" + response.username() + "] : " + response.message());
             }
             case "PING" -> out.println("PONG");
+            case "GAME_LAUNCHED" ->
+                    coloredPrint(ANSI_YELLOW, "A new game is brewing in lobby " + getPropertyFromJson(json, "lobby") + "! Join in!");
+            case "GAME_START" ->
+                    coloredPrint(ANSI_YELLOW, "The game in lobby \"" + getPropertyFromJson(json, "lobby") + "\" elapsed!");
+            case "GAME_GUESSED" ->
+                    coloredPrint(ANSI_YELLOW, getPropertyFromJson(json, "username") + " has guessed the number!");
+            case "GAME_END" -> {
+                Leaderboard leaderboard = mapper.readValue(json, Leaderboard.class);
+                coloredPrint(ANSI_YELLOW, "Game in lobby " + leaderboard.lobby() + " has ended! Here is the scoreboard:");
+                int index = 1;
+                for (Entry<String, Integer> score : leaderboard.leaderboard().entrySet()) {
+                    coloredPrint(ANSI_YELLOW, index + ".) " + score.getKey() + ": " + score.getValue() + "ms");
+                }
+            }
             case "PARSE_ERROR" -> coloredPrint(ANSI_MAGENTA, "Parse error occurred processing your message");
-            case "UNKNOWN_COMMAND" -> coloredPrint(ANSI_MAGENTA, "The send command is unknown to the server");
-            default -> coloredPrint(ANSI_MAGENTA, "Unknown message type from the server");
+            default -> coloredPrint(ANSI_MAGENTA, "Unknown message type or command from the server");
         }
     }
 }

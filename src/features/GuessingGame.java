@@ -2,25 +2,28 @@ package features;
 
 import server.Server.Connection;
 
-import java.io.OutputStream;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 
 public class GuessingGame implements Runnable {
+    private final Set<Connection> players = new HashSet<>();
+    private final Map<String, Long> leaderboard = new HashMap<>();
+    private final int answer;
+    private final String lobbyName;
 
-    private List<Connection> players = new LinkedList<>();
-    private OutputStream serverOut;
-    private int answer;
-
-    public GuessingGame(OutputStream serverOut, int lower, int upper) {
+    public GuessingGame(String lobbyName, int lower, int upper) {
         this.answer = (new Random()).nextInt(lower, upper);
-        this.serverOut = serverOut;
+        this.lobbyName = lobbyName;
+    }
+
+    public void addPlayerToGame(Connection player) {
+        players.add(player);
     }
 
     @Override
     public void run() {
-
+//      implement the collection period
+//      implement the game timer
+//      implement the game closure (all guessed / timeout)
     }
 
 }
