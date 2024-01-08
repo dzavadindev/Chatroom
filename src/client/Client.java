@@ -3,10 +3,7 @@ package client;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import messages.BroadcastMessage;
-import messages.Leaderboard;
-import messages.SystemMessage;
-import messages.Response;
+import messages.*;
 
 import java.io.*;
 import java.net.Socket;
@@ -24,6 +21,7 @@ public class Client {
     private BufferedReader in;
     private ObjectMapper mapper;
     private String gameLobby = "";
+    private String LFT_sender; // LFT stands for Latest File Transfer
 
     public Client(String address, int port) {
         try {
@@ -96,7 +94,6 @@ public class Client {
         String[] messageParts = option.split(" ", 2);
         String command = messageParts[0];
         String content = messageParts.length == 2 ? messageParts[1] : "";
-        content = content.replace("\"", "\\\"");
 
         switch (command) {
             case "!help" -> help();
@@ -108,6 +105,9 @@ public class Client {
             case "!create" -> create(content);
             case "!join" -> join(content);
             case "!guess" -> guess(content);
+            case "!file" -> file(content);
+            case "!accept" -> accept();
+            case "!reject" -> reject();
             default -> System.out.println("Unknown operation");
         }
     }
@@ -121,6 +121,8 @@ public class Client {
         System.out.println("### !create <lobby name> - create a lobby for guessing game");
         System.out.println("### !join <lobby name> - enter a number guessing game is one currently is active");
         System.out.println("### !guess <guess> - enter your guess for the number guessing game if you're in a game");
+        System.out.println("### !file <filename> <receiver> - send a file to the specified user");
+        System.out.println("### !accept/reject - accept or decline the latest file transfer offered");
     }
 
 
@@ -161,10 +163,27 @@ public class Client {
     }
 
     private void login(String username) {
-        out.println("LOGIN {\"username\":\"" + username + "\"}");
+        out.println("LOGIN " + wrapInJson("username", username));
     }
 
-    private void handleResponseMessages(Response<?> response) {
+    private void file(String content) throws JsonProcessingException {
+        String[] params = content.split(" ", 2);
+        //todo: validation of command and file existing
+        String filename = params[0];
+        String receiver = params[1];
+        out.println("SEND_FILE " + mapper.writeValueAsString(new FileTransferRequest(filename, receiver, "")));
+    }
+
+    private void accept() throws JsonProcessingException {
+        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(true, LFT_sender, "")));
+    }
+
+    private void reject() throws JsonProcessingException {
+        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(false, LFT_sender, "")));
+    }
+
+    private void handleResponseMessages(Response<?> response) throws JsonProcessingException {
+        // todo: rewrite to a HashMap in "util" package
         switch (response.status()) {
             case 800 -> successfulMessagesHandler(response);
             // 810-819 reserved for login codes
@@ -195,11 +214,16 @@ public class Client {
             // 700-710 reserved for disconnection reasons
             case 700 -> System.err.println("Pong timeout");
             case 701 -> System.err.println("Unterminated message");
+            // 710-720 reserved for general codes
+            case 710 -> System.err.println("You are not logged in");
+            case 711 -> System.err.println("User " + response.content() + " was not found");
+
             default -> System.err.println("Server responded with an unknown status code");
         }
     }
 
     private String findDisconnectionReason(String code) {
+        // this should go to the hashmap too
         switch (code) {
             case "700" -> {
                 return "Bye bye!";
@@ -211,7 +235,7 @@ public class Client {
         return "Unknown code";
     }
 
-    private void successfulMessagesHandler(Response<?> response) {
+    private void successfulMessagesHandler(Response<?> response) throws JsonProcessingException {
         switch (response.to()) {
             // the response.content() that is received at this point is an Object instance
             // thus it can be anything. For that reason, casting is required when receiving
@@ -223,14 +247,35 @@ public class Client {
             case "LOGIN" -> System.out.println("Logged in successfully!");
             case "LIST" -> System.out.println(response.content());
             case "GAME_LAUNCH" -> System.out.println("Game started!");
+            case "TRANSFER_RESPONSE" -> coloredPrint(ANSI_GREEN, "Your response was sent to the sender");
+            case "SEND_FILE" -> {
+                if (response.content().equals("OK")) {
+                    coloredPrint(ANSI_GREEN, "Request sent to the user");
+                    return;
+                }
+                FileTransferResponse ftr = mapper.readValue((String) response.content(), FileTransferResponse.class);
+                if (ftr.status()) {
+                    coloredPrint(ANSI_GREEN, ftr.sender() + " has ACCEPTED your file transfer inquiry! Preparing transmission...");
+                    initFileTransfer();
+                } else
+                    coloredPrint(ANSI_GREEN, ftr.sender() + " has REJECTED your file transfer inquiry.");
+            }
             default -> System.out.println("OK status received. Unknown destination of the response: " + response.to());
         }
+    }
+
+    private void initFileTransfer() {
     }
 
     private void handleServerMessage(String message) throws IOException {
         String[] messageParts = message.split(" ", 2);
         String type = messageParts[0];
         String json = messageParts.length == 2 ? messageParts[1] : "";
+
+        if (!type.equalsIgnoreCase("ping"))
+            System.out.println(message);
+        //todo: DEBUGGING - the accepted/rejected response is not received by the sender
+        // todo: EVEN FUCKING SENDING STOPPED WORKING??????????????
 
         switch (type) {
             case "RESPONSE" -> {
@@ -278,6 +323,11 @@ public class Client {
                 for (Entry<String, Integer> score : leaderboard.leaderboard().entrySet()) {
                     coloredPrint(ANSI_YELLOW, index + ".) " + score.getKey() + ": " + score.getValue() + "ms");
                 }
+            }
+            case "TRANSFER_REQUEST" -> {
+                FileTransferRequest ftm = mapper.readValue(json, FileTransferRequest.class);
+                coloredPrint(ANSI_GREEN, "You are receiving an inquiry for file exchange from " + ftm.sender() + " (" + ftm.filename() + ")");
+                LFT_sender = ftm.sender();
             }
             case "PARSE_ERROR" -> coloredPrint(ANSI_MAGENTA, "Parse error occurred processing your message");
             default -> coloredPrint(ANSI_MAGENTA, "Unknown message type or command from the server");

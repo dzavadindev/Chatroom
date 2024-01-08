@@ -4,7 +4,17 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="8d059475-5725-4117-b03b-5be8769edff6" name="Changes" comment="Before merge to home pc" />
+    <list default="true" id="8d059475-5725-4117-b03b-5be8769edff6" name="Changes" comment="Handshake almost done">
+      <change afterPath="$PROJECT_DIR$/.idea/uiDesigner.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/exceptions/UserNotFoundException.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/messages/FileTransferRequest.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/messages/FileTransferResponse.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/chatRoom.iml" beforeDir="false" afterPath="$PROJECT_DIR$/chatRoom.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/client/Client.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/client/Client.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/server/Server.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/server/Server.java" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -54,6 +64,7 @@
     "Repository.Attach.Sources": "false",
     "RunOnceActivity.OpenProjectViewOnStart": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "WebServerToolWindowFactoryState": "false",
     "jdk.selected.JAVA_MODULE": "17",
     "kotlin-language-version-configured": "true",
@@ -67,7 +78,7 @@
     "project.structure.proportion": "0.15",
     "project.structure.side.proportion": "0.2",
     "run.code.analysis.last.selected.profile": "pProject Default",
-    "settings.editor.selected.configurable": "project.propVCSSupport.DirectoryMappings",
+    "settings.editor.selected.configurable": "preferences.keymap",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
@@ -75,8 +86,11 @@
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\Projects\School\AUniAssignments\year2\q2\InternetTech\chatRoom\src" />
     </key>
+    <key name="CopyClassDialog.RECENTS_KEY">
+      <recent name="messages" />
+    </key>
   </component>
-  <component name="RunManager" selected="Application.AServer">
+  <component name="RunManager" selected="Compound.TwoClients">
     <configuration name="AServer" type="Application" factoryName="Application">
       <option name="MAIN_CLASS_NAME" value="server.Server" />
       <module name="chatRoom" />
@@ -250,7 +264,15 @@
       <option name="project" value="LOCAL" />
       <updated>1703259469599</updated>
     </task>
-    <option name="localTasksCounter" value="9" />
+    <task id="LOCAL-00009" summary="Updated the Jackson dependencies">
+      <option name="closed" value="true" />
+      <created>1704730594343</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1704730594343</updated>
+    </task>
+    <option name="localTasksCounter" value="10" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -281,6 +303,8 @@
     <MESSAGE value="Finished the notes to the number guessing game and file transfer. Ready to implement both. Happy Holidays!" />
     <MESSAGE value="After holiday push" />
     <MESSAGE value="Before merge to home pc" />
-    <option name="LAST_COMMIT_MESSAGE" value="Before merge to home pc" />
+    <MESSAGE value="Updated the Jackson dependencies" />
+    <MESSAGE value="Handshake almost done" />
+    <option name="LAST_COMMIT_MESSAGE" value="Handshake almost done" />
   </component>
 </project>
