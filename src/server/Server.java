@@ -1,25 +1,29 @@
 package server;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import features.GuessingGame;
 import messages.BroadcastMessage;
 import messages.Response;
 import messages.SystemMessage;
 
 import java.io.*;
+import java.util.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+
+import static util.Util.*;
 
 public class Server {
     private final ObjectMapper mapper;
+    private final String LOBBY_NAME_REGEX = "^[a-zA-Z0-9-_]+$";
+    private final String USER_NAME_REGEX = "^[a-zA-Z0-9-_]{3,14}$";
     private final Set<Connection> users = new HashSet<>();
-    private final Set<GuessingGame> activeGames = new HashSet<>();
+    private final ConcurrentHashMap<String, GuessingGame> activeGames = new ConcurrentHashMap<>();
+    private final int GAME_UPPER_BOUND = 50, GAME_LOWER_BOUND = 1;
     private final String greeting = "Welcome to the chatroom! Please login to start chatting!";
 
     public Server(int SERVER_PORT) {
@@ -78,9 +82,22 @@ public class Server {
         }
 
         private void messageHandler(String message) throws InterruptedException, IOException {
+            System.out.println(message);
             String[] messageParts = message.split(" ", 2);
             String type = messageParts[0];
             String json = messageParts.length == 2 ? messageParts[1] : "";
+
+            if (type.contains("GAME") && !type.equalsIgnoreCase("GAME_LAUNCH")) {
+                String lobbyName = getPropertyFromJson(json, "lobby");
+                GuessingGame game = activeGames.get(lobbyName);
+                if (game != null) {
+                    switch (type) {
+                        case "GAME_JOIN" -> handleGameJoin(game, json);
+                        case "GAME_GUESS" -> handleGameGuess(game, json);
+                    }
+                } else sendResponse(type, 858, lobbyName);
+                return;
+            }
 
             try {
                 switch (type) {
@@ -99,9 +116,22 @@ public class Server {
         }
 
         private void handleGameLaunch(String json) throws JsonProcessingException {
-            String lobbyName = getPropertyFromJson(json, "lobby");
-            GuessingGame newGame = new GuessingGame(out, lobbyName, 1, 50);
-            activeGames.add(newGame);
+            if (username.isBlank()) {
+                sendResponse("GAME_JOIN", 852, "ERROR");
+                return;
+            }
+            String lobby = getPropertyFromJson(json, "lobby");
+            if (!lobby.matches(LOBBY_NAME_REGEX)) {
+                sendResponse("GAME_LAUNCH", 850, lobby);
+                return;
+            }
+            GuessingGame newGame = new GuessingGame(lobby, GAME_LOWER_BOUND, GAME_UPPER_BOUND);
+            newGame.addPlayerToGame(this);
+            activeGames.put(lobby, newGame);
+            sendResponse("GAME_LAUNCH", 800, "OK");
+            users.stream()
+                    .filter(user -> !user.username.equals(this.username))
+                    .forEach(user -> user.out.println("GAME_LAUNCHED " + wrapInJson("lobby", lobby)));
              /*
              Every game is a separate thread, handling messages that contain "GAME" in it
              messages with "GAME" in it need to be forwarded to the corresponding game (lobby in message).
@@ -118,16 +148,30 @@ public class Server {
              */
         }
 
+        private void handleGameJoin(GuessingGame game, String json) throws JsonProcessingException {
+            if (username.isBlank()) {
+                sendResponse("GAME_JOIN", 852, "ERROR");
+                return;
+            }
+            game.addPlayerToGame(this);
+            sendResponse("GAME_JOIN", 800, "OK");
+        }
+
+        private void handleGameGuess(GuessingGame game, String json) throws JsonProcessingException {
+            if (username.isBlank()) {
+                sendResponse("GAME_GUESS", 854, "ERROR");
+                return;
+            }
+            sendResponse("GAME_GUESS", 800, "OK");
+        }
+
         private void handleList() throws JsonProcessingException {
-            List<String> online = users.stream()
-                    .filter(user -> !this.username.equals(user.username))
-                    .map(user -> user.username)
-                    .collect(Collectors.toList());
+            List<String> online = users.stream().filter(user -> !this.username.equals(user.username)).map(user -> user.username).collect(Collectors.toList());
             sendResponse("LIST", 800, online);
         }
 
         private void handlePrivate(String json) throws JsonProcessingException {
-            if (this.username.isBlank()) {
+            if (username.isBlank()) {
                 sendResponse("BROADCAST", 820, "ERROR");
                 return;
             }
@@ -154,15 +198,13 @@ public class Server {
                 return;
             }
             String message = getPropertyFromJson(json, "message");
-            users.stream()
-                    .filter(user -> !user.username.equals(this.username))
-                    .forEach(user -> {
-                        try {
-                            user.out.println("BROADCAST " + mapper.writeValueAsString(new BroadcastMessage(this.username, message)));
-                        } catch (JsonProcessingException e) {
-                            throw new RuntimeException(e);
-                        }
-                    });
+            users.stream().filter(user -> !user.username.equals(this.username)).forEach(user -> {
+                try {
+                    user.out.println("BROADCAST " + mapper.writeValueAsString(new BroadcastMessage(this.username, message)));
+                } catch (JsonProcessingException e) {
+                    throw new RuntimeException(e);
+                }
+            });
         }
 
         private void handleLogin(String json) throws JsonProcessingException {
@@ -170,9 +212,20 @@ public class Server {
                 sendResponse("LOGIN", 810, "ERROR");
                 return;
             }
+
             String username = getPropertyFromJson(json, "username");
-            Matcher matcher = Pattern.compile("^[a-zA-Z-_]{4,14}$").matcher(username);
-            if (matcher.find()) {
+
+            Connection userWithThisUsername = users.stream()
+                    .filter(user -> user.username.equals(username))
+                    .findAny()
+                    .orElse(null);
+
+            if (userWithThisUsername != null) {
+                sendResponse("LOGIN", 812, "ERROR");
+                return;
+            }
+
+            if (username.matches(USER_NAME_REGEX)) {
                 this.username = username;
                 new Thread(new Heartbeat()).start();
                 sendResponse("LOGIN", 800, "OK");
@@ -187,8 +240,12 @@ public class Server {
             } else sendResponse("LOGIN", 811, "ERROR");
         }
 
-        private void handleHeartbeat() {
+        private void handleHeartbeat() throws JsonProcessingException {
             // TODO: is the PONG send without PING is an actual error code? It doesn't do anything???
+            if (alive) {
+                sendResponse("PONG", 830, "ERROR");
+                return;
+            }
             alive = true;
         }
 
@@ -209,11 +266,6 @@ public class Server {
             out.println("RESPONSE " + mapper.writeValueAsString(new Response<>(content, status, to)));
         }
 
-        private String getPropertyFromJson(String json, String property) throws JsonProcessingException {
-            JsonNode node = mapper.readTree(json);
-            return node.path(property).asText();
-        }
-
         private class Heartbeat implements Runnable {
             @Override
             public void run() {
@@ -229,12 +281,18 @@ public class Server {
                         alive = false;
                         out.println("PING");
                         Thread.sleep(HEARTBEAT_REACTION);
-                        if (!alive) disconnect(701);
+                        if (!alive)
+                            disconnect(701);
                     } catch (IOException | InterruptedException e) {
                         throw new RuntimeException(e);
                     }
                 }
             }
+        }
+
+        @Override
+        public String toString() {
+            return "Connection{" + "username='" + username + '\'' + '}';
         }
     }
 }
