@@ -4,19 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="8d059475-5725-4117-b03b-5be8769edff6" name="Changes" comment="After holiday push">
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/chatRoom.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/messages/Leaderboard.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/util/Util.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jsServer/README.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/jsServer/package.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/jsServer/server.js" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/client/Client.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/client/Client.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/colors/ANSIColors.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/colors/ANSIColors.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/features/GuessingGame.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/features/GuessingGame.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/server/Server.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/server/Server.java" afterDir="false" />
-    </list>
+    <list default="true" id="8d059475-5725-4117-b03b-5be8769edff6" name="Changes" comment="After holiday push" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
