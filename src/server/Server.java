@@ -105,6 +105,7 @@ public class Server {
                 return;
             }
 
+
             try {
                 switch (type) {
                     case "PONG" -> handleHeartbeat();
@@ -125,7 +126,7 @@ public class Server {
         // -----------------------------------   HANDLERS   ------------------------------------------------
 
         private void handleTransferRequest(String json) throws JsonProcessingException {
-            if (isLoggedIn()) return;
+            if (!isLoggedIn()) return;
 
             String filename = getPropertyFromJson(json, "filename");
             String receiverName = getPropertyFromJson(json, "receiver");
@@ -133,6 +134,7 @@ public class Server {
             try {
                 Connection receiver = findUserByUsername(receiverName);
                 FileTransferRequest request = new FileTransferRequest(filename, receiverName, this.username);
+                System.out.println("sending request to the receiver");
                 receiver.out.println("TRANSFER_REQUEST " + mapper.writeValueAsString(request));
                 receiver.addPendingFileTransferRequest(request);
                 sendResponse("SEND_FILE", 800, "OK");
@@ -143,7 +145,7 @@ public class Server {
         }
 
         private void handleTransferResponse(String json) throws JsonProcessingException {
-            if (isLoggedIn()) return;
+            if (!isLoggedIn()) return;
 
             boolean status = Boolean.parseBoolean(getPropertyFromJson(json, "status"));
             String senderName = getPropertyFromJson(json, "sender");
@@ -166,7 +168,7 @@ public class Server {
         }
 
         private void handleGameLaunch(String json) throws JsonProcessingException {
-            if (isLoggedIn()) return;
+            if (!isLoggedIn()) return;
 
             String lobby = getPropertyFromJson(json, "lobby");
             if (!lobby.matches(LOBBY_NAME_REGEX)) {
@@ -198,7 +200,7 @@ public class Server {
         }
 
         private void handleGameJoin(GuessingGame game, String json) throws JsonProcessingException {
-            if (isLoggedIn()) return;
+            if (!isLoggedIn()) return;
             if (inGame) {
                 sendResponse("GAME_JOIN", 857, "ERROR");
                 return;
@@ -209,7 +211,7 @@ public class Server {
         }
 
         private void handleGameGuess(GuessingGame game, String json) throws JsonProcessingException {
-            if (isLoggedIn()) return;
+            if (!isLoggedIn()) return;
             if (!inGame) {
                 sendResponse("GAME_JOIN", 853, "ERROR");
                 return;
@@ -230,7 +232,7 @@ public class Server {
         }
 
         private void handlePrivate(String json) throws JsonProcessingException {
-            if (isLoggedIn()) return;
+            if (!isLoggedIn()) return;
 
             String message = getPropertyFromJson(json, "message");
             String receiverName = getPropertyFromJson(json, "username");
@@ -248,7 +250,7 @@ public class Server {
         }
 
         private void handleBroadcast(String json) throws JsonProcessingException {
-            if (isLoggedIn()) return;
+            if (!isLoggedIn()) return;
 
             String message = getPropertyFromJson(json, "message");
             users.stream().filter(user -> !user.username.equals(this.username)).forEach(user -> {

@@ -23,7 +23,7 @@ public class Client {
     private BufferedReader in;
     private ObjectMapper mapper;
     private String gameLobby = "", LFT_sender = ""; // LFT stands for Latest File Transfer
-    private final String FILE_TRANSFER_DIRECTORY = "exchange/"; // LFT stands for Latest File Transfer
+    private final String FILE_TRANSFER_DIRECTORY = "src/exchange/"; // LFT stands for Latest File Transfer
 
     public Client(String address, int port) {
         try {
@@ -197,7 +197,6 @@ public class Client {
             return;
         }
         String message = codeToMessage.get(response.status());
-        System.out.println(response);
 
         if (message == null) {
             System.err.println("Server responded with an unknown status code");
@@ -269,7 +268,8 @@ public class Client {
         String type = messageParts[0];
         String json = messageParts.length == 2 ? messageParts[1] : "";
 
-        //todo: DEBUGGING - the accepted/rejected response is not received by the sender
+        // todo: DEBUGGING - the accepted/rejected response is not received by the sender
+
         // todo: EVEN FUCKING SENDING STOPPED WORKING??????????????
 
         switch (type) {
