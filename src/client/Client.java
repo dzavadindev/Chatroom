@@ -3,18 +3,17 @@ package client;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import messages.BroadcastMessage;
-import messages.Leaderboard;
-import messages.SystemMessage;
-import messages.Response;
+import messages.*;
 
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.Map.Entry;
+import java.util.MissingFormatArgumentException;
 
 import static colors.ANSIColors.*;
 import static util.Util.*;
+import static util.Codes.codeToMessage;
 
 public class Client {
 
@@ -23,7 +22,8 @@ public class Client {
     private PrintWriter out;
     private BufferedReader in;
     private ObjectMapper mapper;
-    private String gameLobby = "";
+    private String gameLobby = "", LFT_sender = ""; // LFT stands for Latest File Transfer
+    private final String FILE_TRANSFER_DIRECTORY = "exchange/"; // LFT stands for Latest File Transfer
 
     public Client(String address, int port) {
         try {
@@ -96,7 +96,6 @@ public class Client {
         String[] messageParts = option.split(" ", 2);
         String command = messageParts[0];
         String content = messageParts.length == 2 ? messageParts[1] : "";
-        content = content.replace("\"", "\\\"");
 
         switch (command) {
             case "!help" -> help();
@@ -108,6 +107,9 @@ public class Client {
             case "!create" -> create(content);
             case "!join" -> join(content);
             case "!guess" -> guess(content);
+            case "!file" -> file(content);
+            case "!accept" -> accept();
+            case "!reject" -> reject();
             default -> System.out.println("Unknown operation");
         }
     }
@@ -121,6 +123,11 @@ public class Client {
         System.out.println("### !create <lobby name> - create a lobby for guessing game");
         System.out.println("### !join <lobby name> - enter a number guessing game is one currently is active");
         System.out.println("### !guess <guess> - enter your guess for the number guessing game if you're in a game");
+        System.out.println("### !file <filename> <receiver> - send a file to the specified user");
+        System.out.println("###### NOTE:");
+        System.out.println("###### The file you're planning to send must be in the \"exchange\" directory.");
+        System.out.println("###### When specifying the file for transmission, include only the name and extension");
+        System.out.println("### !accept/reject - accept or decline the latest file transfer offered");
     }
 
 
@@ -161,45 +168,59 @@ public class Client {
     }
 
     private void login(String username) {
-        out.println("LOGIN {\"username\":\"" + username + "\"}");
+        out.println("LOGIN " + wrapInJson("username", username));
     }
 
-    private void handleResponseMessages(Response<?> response) {
-        switch (response.status()) {
-            case 800 -> successfulMessagesHandler(response);
-            // 810-819 reserved for login codes
-            case 810 -> System.err.println("You can't log in twice");
-            case 811 -> System.err.println("Invalid username format");
-            // 820-829 reserved for message related codes
-            case 820 -> System.err.println("Can't send messages anonymously");
-            case 821 -> System.err.println("Cannot find user with name " + response.content());
-            case 822 -> System.err.println("Cannot send a private message to yourself");
-            // 830-839 reserved for heartbeat codes
-            // case 830 -> System.err.println("Pong without ping"); TODO: THE PING/PONG ERROR
-            // 840-849 reserved for user list related errors
-            case 840 -> System.err.println("To view the list of users you need to log in");
-            // 850-859 reserved for game related errors
-            case 850 -> System.err.println("You need to log in before starting a game");
-            case 851 ->
-                    System.err.println("You can't create a lobby with name " + response.content() + ". Use only latin letters and numbers");
-            case 852 -> System.err.println("Can't join a game without logging in");
-            case 853 -> System.err.println("You are not in a game to send your guesses to");
-            case 854 -> System.err.println("You can't send a guess for a game when not logged in");
-            case 855 -> System.err.println("Invalid guess provided. Only numbers are acceptable");
-            case 856 ->
-                    System.err.println("Your guess in not in the games range: " + response.content()); // response.content() is the game range
-            case 857 -> System.err.println("Can't join two games at the same time");
-            case 858 -> System.err.println("Game" + response.content() + "not found");
-            // 860-869 reserved for file transfer related errors
-            case 860 -> System.err.println();
-            // 700-710 reserved for disconnection reasons
-            case 700 -> System.err.println("Pong timeout");
-            case 701 -> System.err.println("Unterminated message");
-            default -> System.err.println("Server responded with an unknown status code");
+    private void file(String content) throws JsonProcessingException {
+        String[] params = content.split(" ", 2);
+        String filename = params[0];
+        String receiver = params[1];
+        File file = new File(FILE_TRANSFER_DIRECTORY + filename);
+        if (!file.exists()) {
+            coloredPrint(ANSI_MAGENTA, "FILE WITH NAME " + filename + " DOES NOT EXIST");
+            return;
+        }
+        out.println("SEND_FILE " + mapper.writeValueAsString(new FileTransferRequest(filename, receiver, "")));
+    }
+
+    private void accept() throws JsonProcessingException {
+        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(true, LFT_sender, "")));
+    }
+
+    private void reject() throws JsonProcessingException {
+        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(false, LFT_sender, "")));
+    }
+
+    private void handleResponseMessages(Response<?> response) throws JsonProcessingException {
+        if (response.status() == 800) {
+            successfulMessagesHandler(response);
+            return;
+        }
+        String message = codeToMessage.get(response.status());
+        System.out.println(response);
+
+        if (message == null) {
+            System.err.println("Server responded with an unknown status code");
+            return;
+        }
+
+        try {
+            if (response.status() == 711) {
+                NotFound notFound = (NotFound) response.content();
+                message = String.format(message, notFound.resource(), notFound.content());
+                System.out.println(message);
+                return;
+            }
+
+            message = String.format(message, response.content());
+            System.out.println(message);
+        } catch (MissingFormatArgumentException e) {
+            System.out.println(message);
         }
     }
 
     private String findDisconnectionReason(String code) {
+        // this should go to the hashmap too
         switch (code) {
             case "700" -> {
                 return "Bye bye!";
@@ -211,7 +232,7 @@ public class Client {
         return "Unknown code";
     }
 
-    private void successfulMessagesHandler(Response<?> response) {
+    private void successfulMessagesHandler(Response<?> response) throws JsonProcessingException {
         switch (response.to()) {
             // the response.content() that is received at this point is an Object instance
             // thus it can be anything. For that reason, casting is required when receiving
@@ -223,14 +244,33 @@ public class Client {
             case "LOGIN" -> System.out.println("Logged in successfully!");
             case "LIST" -> System.out.println(response.content());
             case "GAME_LAUNCH" -> System.out.println("Game started!");
+            case "TRANSFER_RESPONSE" -> coloredPrint(ANSI_GREEN, "Your response was sent to the sender");
+            case "SEND_FILE" -> {
+                if (response.content().equals("OK")) {
+                    coloredPrint(ANSI_GREEN, "Request sent to the user");
+                    return;
+                }
+                FileTransferResponse ftr = mapper.readValue((String) response.content(), FileTransferResponse.class);
+                if (ftr.status()) {
+                    coloredPrint(ANSI_GREEN, ftr.sender() + " has ACCEPTED your file transfer inquiry! Preparing transmission...");
+                    initFileTransfer();
+                } else
+                    coloredPrint(ANSI_GREEN, ftr.sender() + " has REJECTED your file transfer inquiry.");
+            }
             default -> System.out.println("OK status received. Unknown destination of the response: " + response.to());
         }
+    }
+
+    private void initFileTransfer() {
     }
 
     private void handleServerMessage(String message) throws IOException {
         String[] messageParts = message.split(" ", 2);
         String type = messageParts[0];
         String json = messageParts.length == 2 ? messageParts[1] : "";
+
+        //todo: DEBUGGING - the accepted/rejected response is not received by the sender
+        // todo: EVEN FUCKING SENDING STOPPED WORKING??????????????
 
         switch (type) {
             case "RESPONSE" -> {
@@ -239,8 +279,12 @@ public class Client {
                 handleResponseMessages(response);
             }
             case "DISCONNECTED" -> {
-                SystemMessage response = mapper.readValue(json, SystemMessage.class);
-                String disconnectionReason = findDisconnectionReason(response.message());
+                String disconnectionReason = "Unknown cause";
+                try {
+                    SystemMessage response = mapper.readValue(json, SystemMessage.class);
+                    disconnectionReason = codeToMessage.get(Integer.parseInt(response.message()));
+                } catch (NumberFormatException ignored) {
+                }
                 System.out.println("You were disconnected from the server. " + disconnectionReason);
                 socket.close();
             }
@@ -278,6 +322,11 @@ public class Client {
                 for (Entry<String, Integer> score : leaderboard.leaderboard().entrySet()) {
                     coloredPrint(ANSI_YELLOW, index + ".) " + score.getKey() + ": " + score.getValue() + "ms");
                 }
+            }
+            case "TRANSFER_REQUEST" -> {
+                FileTransferRequest ftm = mapper.readValue(json, FileTransferRequest.class);
+                coloredPrint(ANSI_GREEN, "You are receiving an inquiry for file exchange from " + ftm.sender() + " (" + ftm.filename() + ")");
+                LFT_sender = ftm.sender();
             }
             case "PARSE_ERROR" -> coloredPrint(ANSI_MAGENTA, "Parse error occurred processing your message");
             default -> coloredPrint(ANSI_MAGENTA, "Unknown message type or command from the server");

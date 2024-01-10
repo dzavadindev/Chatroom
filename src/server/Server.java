@@ -3,10 +3,9 @@ package server;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import exceptions.UserNotFoundException;
 import features.GuessingGame;
-import messages.BroadcastMessage;
-import messages.Response;
-import messages.SystemMessage;
+import messages.*;
 
 import java.io.*;
 import java.util.*;
@@ -27,19 +26,17 @@ public class Server {
     private final String greeting = "Welcome to the chatroom! Please login to start chatting!";
 
     public Server(int SERVER_PORT) {
-        try {
-            this.mapper = new ObjectMapper();
-            startServer(SERVER_PORT);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        this.mapper = new ObjectMapper();
+        startServer(SERVER_PORT);
     }
 
     public static void main(String[] args) {
         new Server(1337);
     }
 
-    private void startServer(int port) throws IOException {
+    // -----------------------------------   CONNECTION HANDLING   ------------------------------------------------
+
+    private void startServer(int port) {
         System.out.println("Server now running on port " + port);
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             while (true) {
@@ -52,20 +49,25 @@ public class Server {
         }
     }
 
+    // -----------------------------------   CONNECTION   ------------------------------------------------
+
     public class Connection implements Runnable {
         private final Socket allocatedSocket;
         private final PrintWriter out;
         private final BufferedReader in;
-        private boolean alive = true;
+        private boolean alive = true, hasLoggedIn = false, inGame = false;
         private String username = "";
         private final long HEARTBEAT_REACTION = 1000 * 5;
         private final long HEARTBEAT_PERIOD = 1000 * 30;
+        private final List<FileTransferRequest> pendingFTRequests = new LinkedList<>();
 
         public Connection(Socket allocatedSocket) throws IOException {
             this.allocatedSocket = allocatedSocket;
             this.out = new PrintWriter(allocatedSocket.getOutputStream(), true);
             this.in = new BufferedReader(new InputStreamReader(allocatedSocket.getInputStream()));
         }
+
+        // -----------------------------------   MESSAGE HANDLING   ------------------------------------------------
 
         @Override
         public void run() {
@@ -75,19 +77,23 @@ public class Server {
                 while (!allocatedSocket.isClosed()) {
                     messageHandler(in.readLine());
                 }
-            } catch (IOException | InterruptedException e) {
+            } catch (IOException e) {
 //                throw new RuntimeException(e);
                 System.err.println(e.getMessage());
             }
         }
 
-        private void messageHandler(String message) throws InterruptedException, IOException {
-            System.out.println(message);
+        private void messageHandler(String message) throws IOException {
+//            System.out.println(message);
             String[] messageParts = message.split(" ", 2);
             String type = messageParts[0];
             String json = messageParts.length == 2 ? messageParts[1] : "";
 
-            if (type.contains("GAME") && !type.equalsIgnoreCase("GAME_LAUNCH")) {
+            if (type.contains("GAME")) {
+                if (type.equalsIgnoreCase("GAME_LAUNCH")) {
+                    handleGameLaunch(json);
+                    return;
+                }
                 String lobbyName = getPropertyFromJson(json, "lobby");
                 GuessingGame game = activeGames.get(lobbyName);
                 if (game != null) {
@@ -95,7 +101,7 @@ public class Server {
                         case "GAME_JOIN" -> handleGameJoin(game, json);
                         case "GAME_GUESS" -> handleGameGuess(game, json);
                     }
-                } else sendResponse(type, 858, lobbyName);
+                } else sendResponse(type, 711, new NotFound("game", lobbyName));
                 return;
             }
 
@@ -106,7 +112,8 @@ public class Server {
                     case "BROADCAST" -> handleBroadcast(json);
                     case "PRIVATE" -> handlePrivate(json);
                     case "LIST" -> handleList();
-                    case "GAME_LAUNCH" -> handleGameLaunch(json);
+                    case "SEND_FILE" -> handleTransferRequest(json);
+                    case "TRANSFER_RESPONSE" -> handleTransferResponse(json);
                     case "LEAVE" -> disconnect(700);
                     default -> out.println("UNKNOWN_ACTION");
                 }
@@ -115,16 +122,58 @@ public class Server {
             }
         }
 
-        private void handleGameLaunch(String json) throws JsonProcessingException {
-            if (username.isBlank()) {
-                sendResponse("GAME_JOIN", 852, "ERROR");
+        // -----------------------------------   HANDLERS   ------------------------------------------------
+
+        private void handleTransferRequest(String json) throws JsonProcessingException {
+            if (isLoggedIn()) return;
+
+            String filename = getPropertyFromJson(json, "filename");
+            String receiverName = getPropertyFromJson(json, "receiver");
+
+            try {
+                Connection receiver = findUserByUsername(receiverName);
+                FileTransferRequest request = new FileTransferRequest(filename, receiverName, this.username);
+                receiver.out.println("TRANSFER_REQUEST " + mapper.writeValueAsString(request));
+                receiver.addPendingFileTransferRequest(request);
+                sendResponse("SEND_FILE", 800, "OK");
+            } catch (UserNotFoundException e) {
+                System.err.println(e.getMessage());
+                sendResponse("SEND_FILE", 711, new NotFound("user", username));
+            }
+        }
+
+        private void handleTransferResponse(String json) throws JsonProcessingException {
+            if (isLoggedIn()) return;
+
+            boolean status = Boolean.parseBoolean(getPropertyFromJson(json, "status"));
+            String senderName = getPropertyFromJson(json, "sender");
+
+            FileTransferRequest ftr = pendingFTRequests.stream()
+                    .filter(req -> req.sender().equals(senderName))
+                    .findAny()
+                    .orElse(null);
+
+            if (ftr == null) {
+                sendResponse("TRANSFER_RESPONSE", 860, "ERROR");
                 return;
             }
+
+            FileTransferResponse fts = new FileTransferResponse(status, this.username, senderName);
+            String response = mapper.writeValueAsString(fts);
+            sendResponse("SEND_FILE", 800, response, senderName);
+            sendResponse("TRANSFER_RESPONSE", 800, "OK");
+            // todo: initiate the file transfer (in Client when receiving "true" in contents)
+        }
+
+        private void handleGameLaunch(String json) throws JsonProcessingException {
+            if (isLoggedIn()) return;
+
             String lobby = getPropertyFromJson(json, "lobby");
             if (!lobby.matches(LOBBY_NAME_REGEX)) {
-                sendResponse("GAME_LAUNCH", 850, lobby);
+                sendResponse("GAME_LAUNCH", 852, lobby);
                 return;
             }
+
             GuessingGame newGame = new GuessingGame(lobby, GAME_LOWER_BOUND, GAME_UPPER_BOUND);
             newGame.addPlayerToGame(this);
             activeGames.put(lobby, newGame);
@@ -149,19 +198,29 @@ public class Server {
         }
 
         private void handleGameJoin(GuessingGame game, String json) throws JsonProcessingException {
-            if (username.isBlank()) {
-                sendResponse("GAME_JOIN", 852, "ERROR");
+            if (isLoggedIn()) return;
+            if (inGame) {
+                sendResponse("GAME_JOIN", 857, "ERROR");
                 return;
             }
             game.addPlayerToGame(this);
+            inGame = true;
             sendResponse("GAME_JOIN", 800, "OK");
         }
 
         private void handleGameGuess(GuessingGame game, String json) throws JsonProcessingException {
-            if (username.isBlank()) {
-                sendResponse("GAME_GUESS", 854, "ERROR");
+            if (isLoggedIn()) return;
+            if (!inGame) {
+                sendResponse("GAME_JOIN", 853, "ERROR");
                 return;
             }
+            int guess = 0;
+            try {
+                guess = Integer.parseInt(getPropertyFromJson(json, "guess"));
+            } catch (NumberFormatException e) {
+                sendResponse("GAME_GUESS", 855, "ERROR");
+            }
+            System.out.println(guess);
             sendResponse("GAME_GUESS", 800, "OK");
         }
 
@@ -171,32 +230,26 @@ public class Server {
         }
 
         private void handlePrivate(String json) throws JsonProcessingException {
-            if (username.isBlank()) {
-                sendResponse("BROADCAST", 820, "ERROR");
-                return;
-            }
+            if (isLoggedIn()) return;
+
             String message = getPropertyFromJson(json, "message");
             String receiverName = getPropertyFromJson(json, "username");
             if (this.username.equals(receiverName)) {
                 sendResponse("BROADCAST", 822, "ERROR");
                 return;
             }
-            Connection receiver = users.stream()
-                    .filter(user -> user.username.equals(receiverName))
-                    .findAny()
-                    .orElse(null);
-            if (receiver == null) {
-                sendResponse("BROADCAST", 821, receiverName);
-                return;
+
+            try {
+                Connection receiver = findUserByUsername(username);
+                receiver.out.println("PRIVATE " + mapper.writeValueAsString(new BroadcastMessage(this.username, message)));
+            } catch (UserNotFoundException e) {
+                sendResponse("BROADCAST", 711, new NotFound("receiver", username));
             }
-            receiver.out.println("PRIVATE " + mapper.writeValueAsString(new BroadcastMessage(this.username, message)));
         }
 
         private void handleBroadcast(String json) throws JsonProcessingException {
-            if (username.isBlank()) {
-                sendResponse("BROADCAST", 820, "ERROR");
-                return;
-            }
+            if (isLoggedIn()) return;
+
             String message = getPropertyFromJson(json, "message");
             users.stream().filter(user -> !user.username.equals(this.username)).forEach(user -> {
                 try {
@@ -208,7 +261,7 @@ public class Server {
         }
 
         private void handleLogin(String json) throws JsonProcessingException {
-            if (!username.isBlank()) {
+            if (!username.isBlank() && hasLoggedIn) {
                 sendResponse("LOGIN", 810, "ERROR");
                 return;
             }
@@ -237,11 +290,11 @@ public class Server {
                     }
                 });
                 users.add(this);
+                hasLoggedIn = !hasLoggedIn;
             } else sendResponse("LOGIN", 811, "ERROR");
         }
 
         private void handleHeartbeat() throws JsonProcessingException {
-            // TODO: is the PONG send without PING is an actual error code? It doesn't do anything???
             if (alive) {
                 sendResponse("PONG", 830, "ERROR");
                 return;
@@ -262,9 +315,41 @@ public class Server {
             allocatedSocket.close();
         }
 
+        // -----------------------------------   UTILS   ------------------------------------------------
+
+
         private void sendResponse(String to, int status, Object content) throws JsonProcessingException {
             out.println("RESPONSE " + mapper.writeValueAsString(new Response<>(content, status, to)));
         }
+
+        private void sendResponse(String to, int status, Object content, String username) throws JsonProcessingException {
+            try {
+                Connection user = findUserByUsername(username);
+                user.out.println("RESPONSE " + mapper.writeValueAsString(new Response<>(content, status, to)));
+            } catch (UserNotFoundException e) {
+                System.err.println("Internal error: " + e);
+            }
+        }
+
+        private Connection findUserByUsername(String username) throws UserNotFoundException {
+            Connection receiver = users.stream().filter(user -> user.username.equals(username)).findAny().orElse(null);
+            if (receiver == null) throw new UserNotFoundException(username);
+            return receiver;
+        }
+
+        private boolean isLoggedIn() throws JsonProcessingException {
+            if (username.isBlank() && !hasLoggedIn) {
+                sendResponse("LOGIN", 710, "ERROR"); // Its not a response TO login, but its universal so-
+                return false;
+            }
+            return true;
+        }
+
+        public void addPendingFileTransferRequest(FileTransferRequest ftr) {
+            pendingFTRequests.add(ftr);
+        }
+
+        // -----------------------------------   HEARTBEAT   ------------------------------------------------
 
         private class Heartbeat implements Runnable {
             @Override
@@ -281,8 +366,7 @@ public class Server {
                         alive = false;
                         out.println("PING");
                         Thread.sleep(HEARTBEAT_REACTION);
-                        if (!alive)
-                            disconnect(701);
+                        if (!alive) disconnect(701);
                     } catch (IOException | InterruptedException e) {
                         throw new RuntimeException(e);
                     }
