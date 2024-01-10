@@ -9,9 +9,11 @@ import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.Map.Entry;
+import java.util.MissingFormatArgumentException;
 
 import static colors.ANSIColors.*;
 import static util.Util.*;
+import static util.Codes.codeToMessage;
 
 public class Client {
 
@@ -20,8 +22,8 @@ public class Client {
     private PrintWriter out;
     private BufferedReader in;
     private ObjectMapper mapper;
-    private String gameLobby = "";
-    private String LFT_sender; // LFT stands for Latest File Transfer
+    private String gameLobby = "", LFT_sender = ""; // LFT stands for Latest File Transfer
+    private final String FILE_TRANSFER_DIRECTORY = "exchange/"; // LFT stands for Latest File Transfer
 
     public Client(String address, int port) {
         try {
@@ -122,6 +124,9 @@ public class Client {
         System.out.println("### !join <lobby name> - enter a number guessing game is one currently is active");
         System.out.println("### !guess <guess> - enter your guess for the number guessing game if you're in a game");
         System.out.println("### !file <filename> <receiver> - send a file to the specified user");
+        System.out.println("###### NOTE:");
+        System.out.println("###### The file you're planning to send must be in the \"exchange\" directory.");
+        System.out.println("###### When specifying the file for transmission, include only the name and extension");
         System.out.println("### !accept/reject - accept or decline the latest file transfer offered");
     }
 
@@ -168,9 +173,13 @@ public class Client {
 
     private void file(String content) throws JsonProcessingException {
         String[] params = content.split(" ", 2);
-        //todo: validation of command and file existing
         String filename = params[0];
         String receiver = params[1];
+        File file = new File(FILE_TRANSFER_DIRECTORY + filename);
+        if (!file.exists()) {
+            coloredPrint(ANSI_MAGENTA, "FILE WITH NAME " + filename + " DOES NOT EXIST");
+            return;
+        }
         out.println("SEND_FILE " + mapper.writeValueAsString(new FileTransferRequest(filename, receiver, "")));
     }
 
@@ -183,42 +192,30 @@ public class Client {
     }
 
     private void handleResponseMessages(Response<?> response) throws JsonProcessingException {
-        // todo: rewrite to a HashMap in "util" package
-        switch (response.status()) {
-            case 800 -> successfulMessagesHandler(response);
-            // 810-819 reserved for login codes
-            case 810 -> System.err.println("You can't log in twice");
-            case 811 -> System.err.println("Invalid username format");
-            // 820-829 reserved for message related codes
-            case 820 -> System.err.println("Can't send messages anonymously");
-            case 821 -> System.err.println("Cannot find user with name " + response.content());
-            case 822 -> System.err.println("Cannot send a private message to yourself");
-            // 830-839 reserved for heartbeat codes
-            // case 830 -> System.err.println("Pong without ping"); TODO: THE PING/PONG ERROR
-            // 840-849 reserved for user list related errors
-            case 840 -> System.err.println("To view the list of users you need to log in");
-            // 850-859 reserved for game related errors
-            case 850 -> System.err.println("You need to log in before starting a game");
-            case 851 ->
-                    System.err.println("You can't create a lobby with name " + response.content() + ". Use only latin letters and numbers");
-            case 852 -> System.err.println("Can't join a game without logging in");
-            case 853 -> System.err.println("You are not in a game to send your guesses to");
-            case 854 -> System.err.println("You can't send a guess for a game when not logged in");
-            case 855 -> System.err.println("Invalid guess provided. Only numbers are acceptable");
-            case 856 ->
-                    System.err.println("Your guess in not in the games range: " + response.content()); // response.content() is the game range
-            case 857 -> System.err.println("Can't join two games at the same time");
-            case 858 -> System.err.println("Game" + response.content() + "not found");
-            // 860-869 reserved for file transfer related errors
-            case 860 -> System.err.println();
-            // 700-710 reserved for disconnection reasons
-            case 700 -> System.err.println("Pong timeout");
-            case 701 -> System.err.println("Unterminated message");
-            // 710-720 reserved for general codes
-            case 710 -> System.err.println("You are not logged in");
-            case 711 -> System.err.println("User " + response.content() + " was not found");
+        if (response.status() == 800) {
+            successfulMessagesHandler(response);
+            return;
+        }
+        String message = codeToMessage.get(response.status());
+        System.out.println(response);
 
-            default -> System.err.println("Server responded with an unknown status code");
+        if (message == null) {
+            System.err.println("Server responded with an unknown status code");
+            return;
+        }
+
+        try {
+            if (response.status() == 711) {
+                NotFound notFound = (NotFound) response.content();
+                message = String.format(message, notFound.resource(), notFound.content());
+                System.out.println(message);
+                return;
+            }
+
+            message = String.format(message, response.content());
+            System.out.println(message);
+        } catch (MissingFormatArgumentException e) {
+            System.out.println(message);
         }
     }
 
@@ -272,8 +269,6 @@ public class Client {
         String type = messageParts[0];
         String json = messageParts.length == 2 ? messageParts[1] : "";
 
-        if (!type.equalsIgnoreCase("ping"))
-            System.out.println(message);
         //todo: DEBUGGING - the accepted/rejected response is not received by the sender
         // todo: EVEN FUCKING SENDING STOPPED WORKING??????????????
 
@@ -284,8 +279,12 @@ public class Client {
                 handleResponseMessages(response);
             }
             case "DISCONNECTED" -> {
-                SystemMessage response = mapper.readValue(json, SystemMessage.class);
-                String disconnectionReason = findDisconnectionReason(response.message());
+                String disconnectionReason = "Unknown cause";
+                try {
+                    SystemMessage response = mapper.readValue(json, SystemMessage.class);
+                    disconnectionReason = codeToMessage.get(Integer.parseInt(response.message()));
+                } catch (NumberFormatException ignored) {
+                }
                 System.out.println("You were disconnected from the server. " + disconnectionReason);
                 socket.close();
             }

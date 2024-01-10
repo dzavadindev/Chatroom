@@ -5,14 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="8d059475-5725-4117-b03b-5be8769edff6" name="Changes" comment="Handshake almost done">
-      <change afterPath="$PROJECT_DIR$/.idea/uiDesigner.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/exceptions/UserNotFoundException.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/messages/FileTransferRequest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/messages/FileTransferResponse.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/exchange/hello.txt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/messages/NotFound.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/util/Codes.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/chatRoom.iml" beforeDir="false" afterPath="$PROJECT_DIR$/chatRoom.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/client/Client.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/client/Client.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/messages/FileTransferResponse.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/messages/FileTransferResponse.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/server/Server.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/server/Server.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -68,7 +66,7 @@
     "WebServerToolWindowFactoryState": "false",
     "jdk.selected.JAVA_MODULE": "17",
     "kotlin-language-version-configured": "true",
-    "last_opened_file_path": "C:/Projects/School/AUniAssignments/year2/q2/InternetTech/tests",
+    "last_opened_file_path": "D:/AUniAssignments/year2/q2/InternetTech/chatRoom",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
@@ -150,13 +148,6 @@
       <item itemvalue="Compound.OneClient" />
     </list>
   </component>
-  <component name="SharedIndexes">
-    <attachedChunks>
-      <set>
-        <option value="jdk-21.0.1-openjdk-21.0.1-249ae16d76d6-a618e4d4" />
-      </set>
-    </attachedChunks>
-  </component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
@@ -199,6 +190,8 @@
       <workItem from="1704558340448" duration="121000" />
       <workItem from="1704558633428" duration="1594000" />
       <workItem from="1704729144426" duration="239000" />
+      <workItem from="1704817718007" duration="186000" />
+      <workItem from="1704878882931" duration="11910000" />
     </task>
     <task id="LOCAL-00001" summary="First steps">
       <option name="closed" value="true" />
@@ -272,7 +265,15 @@
       <option name="project" value="LOCAL" />
       <updated>1704730594343</updated>
     </task>
-    <option name="localTasksCounter" value="10" />
+    <task id="LOCAL-00010" summary="Handshake almost done">
+      <option name="closed" value="true" />
+      <created>1704741064820</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1704741064820</updated>
+    </task>
+    <option name="localTasksCounter" value="11" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

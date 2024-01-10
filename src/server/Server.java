@@ -55,10 +55,11 @@ public class Server {
         private final Socket allocatedSocket;
         private final PrintWriter out;
         private final BufferedReader in;
-        private boolean alive = true, hasLoggedIn = false;
+        private boolean alive = true, hasLoggedIn = false, inGame = false;
         private String username = "";
         private final long HEARTBEAT_REACTION = 1000 * 5;
         private final long HEARTBEAT_PERIOD = 1000 * 30;
+        private final List<FileTransferRequest> pendingFTRequests = new LinkedList<>();
 
         public Connection(Socket allocatedSocket) throws IOException {
             this.allocatedSocket = allocatedSocket;
@@ -100,7 +101,7 @@ public class Server {
                         case "GAME_JOIN" -> handleGameJoin(game, json);
                         case "GAME_GUESS" -> handleGameGuess(game, json);
                     }
-                } else sendResponse(type, 858, lobbyName);
+                } else sendResponse(type, 711, new NotFound("game", lobbyName));
                 return;
             }
 
@@ -131,11 +132,13 @@ public class Server {
 
             try {
                 Connection receiver = findUserByUsername(receiverName);
-                receiver.out.println("TRANSFER_REQUEST " + mapper.writeValueAsString(new FileTransferRequest(filename, receiverName, this.username)));
+                FileTransferRequest request = new FileTransferRequest(filename, receiverName, this.username);
+                receiver.out.println("TRANSFER_REQUEST " + mapper.writeValueAsString(request));
+                receiver.addPendingFileTransferRequest(request);
                 sendResponse("SEND_FILE", 800, "OK");
             } catch (UserNotFoundException e) {
                 System.err.println(e.getMessage());
-                sendResponse("SEND_FILE", 711, username);
+                sendResponse("SEND_FILE", 711, new NotFound("user", username));
             }
         }
 
@@ -145,11 +148,18 @@ public class Server {
             boolean status = Boolean.parseBoolean(getPropertyFromJson(json, "status"));
             String senderName = getPropertyFromJson(json, "sender");
 
-            // todo: OR an error message
+            FileTransferRequest ftr = pendingFTRequests.stream()
+                    .filter(req -> req.sender().equals(senderName))
+                    .findAny()
+                    .orElse(null);
 
-            FileTransferResponse fts = new FileTransferResponse(status, senderName, this.username);
+            if (ftr == null) {
+                sendResponse("TRANSFER_RESPONSE", 860, "ERROR");
+                return;
+            }
+
+            FileTransferResponse fts = new FileTransferResponse(status, this.username, senderName);
             String response = mapper.writeValueAsString(fts);
-            System.out.println(fts + " - response object");
             sendResponse("SEND_FILE", 800, response, senderName);
             sendResponse("TRANSFER_RESPONSE", 800, "OK");
             // todo: initiate the file transfer (in Client when receiving "true" in contents)
@@ -160,14 +170,17 @@ public class Server {
 
             String lobby = getPropertyFromJson(json, "lobby");
             if (!lobby.matches(LOBBY_NAME_REGEX)) {
-                sendResponse("GAME_LAUNCH", 850, lobby);
+                sendResponse("GAME_LAUNCH", 852, lobby);
                 return;
             }
+
             GuessingGame newGame = new GuessingGame(lobby, GAME_LOWER_BOUND, GAME_UPPER_BOUND);
             newGame.addPlayerToGame(this);
             activeGames.put(lobby, newGame);
             sendResponse("GAME_LAUNCH", 800, "OK");
-            users.stream().filter(user -> !user.username.equals(this.username)).forEach(user -> user.out.println("GAME_LAUNCHED " + wrapInJson("lobby", lobby)));
+            users.stream()
+                    .filter(user -> !user.username.equals(this.username))
+                    .forEach(user -> user.out.println("GAME_LAUNCHED " + wrapInJson("lobby", lobby)));
              /*
              Every game is a separate thread, handling messages that contain "GAME" in it
              messages with "GAME" in it need to be forwarded to the corresponding game (lobby in message).
@@ -186,17 +199,32 @@ public class Server {
 
         private void handleGameJoin(GuessingGame game, String json) throws JsonProcessingException {
             if (isLoggedIn()) return;
+            if (inGame) {
+                sendResponse("GAME_JOIN", 857, "ERROR");
+                return;
+            }
             game.addPlayerToGame(this);
+            inGame = true;
             sendResponse("GAME_JOIN", 800, "OK");
         }
 
         private void handleGameGuess(GuessingGame game, String json) throws JsonProcessingException {
             if (isLoggedIn()) return;
+            if (!inGame) {
+                sendResponse("GAME_JOIN", 853, "ERROR");
+                return;
+            }
+            int guess = 0;
+            try {
+                guess = Integer.parseInt(getPropertyFromJson(json, "guess"));
+            } catch (NumberFormatException e) {
+                sendResponse("GAME_GUESS", 855, "ERROR");
+            }
+            System.out.println(guess);
             sendResponse("GAME_GUESS", 800, "OK");
         }
 
         private void handleList() throws JsonProcessingException {
-            if (isLoggedIn()) return;
             List<String> online = users.stream().filter(user -> !this.username.equals(user.username)).map(user -> user.username).collect(Collectors.toList());
             sendResponse("LIST", 800, online);
         }
@@ -215,7 +243,7 @@ public class Server {
                 Connection receiver = findUserByUsername(username);
                 receiver.out.println("PRIVATE " + mapper.writeValueAsString(new BroadcastMessage(this.username, message)));
             } catch (UserNotFoundException e) {
-                sendResponse("BROADCAST", 821, username);
+                sendResponse("BROADCAST", 711, new NotFound("receiver", username));
             }
         }
 
@@ -240,7 +268,10 @@ public class Server {
 
             String username = getPropertyFromJson(json, "username");
 
-            Connection userWithThisUsername = users.stream().filter(user -> user.username.equals(username)).findAny().orElse(null);
+            Connection userWithThisUsername = users.stream()
+                    .filter(user -> user.username.equals(username))
+                    .findAny()
+                    .orElse(null);
 
             if (userWithThisUsername != null) {
                 sendResponse("LOGIN", 812, "ERROR");
@@ -264,7 +295,6 @@ public class Server {
         }
 
         private void handleHeartbeat() throws JsonProcessingException {
-            // TODO: is the PONG send without PING is an actual error code? It doesn't do anything???
             if (alive) {
                 sendResponse("PONG", 830, "ERROR");
                 return;
@@ -315,6 +345,10 @@ public class Server {
             return true;
         }
 
+        public void addPendingFileTransferRequest(FileTransferRequest ftr) {
+            pendingFTRequests.add(ftr);
+        }
+
         // -----------------------------------   HEARTBEAT   ------------------------------------------------
 
         private class Heartbeat implements Runnable {
@@ -347,8 +381,6 @@ public class Server {
     }
 }
 
-// todo: change all "not logged in" in doc and code to one error code
-// todo: change all "user not found" in doc and code to one error code
 // File Transfer is a separate thread.
 // Open a new port and create a new server socket on it, PURELY to handle file transfer.
 // When creating a connection to the FileTransfer socket, create tags (mark in bytes S or R).
