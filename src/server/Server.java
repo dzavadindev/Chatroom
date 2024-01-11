@@ -57,8 +57,8 @@ public class Server {
         private final BufferedReader in;
         private boolean alive = true, hasLoggedIn = false, inGame = false;
         private String username = "";
-        private final long HEARTBEAT_REACTION = 1000 * 5;
-        private final long HEARTBEAT_PERIOD = 1000 * 30;
+        private final long HEARTBEAT_REACTION = 1000 * 2;
+        private final long HEARTBEAT_PERIOD = 1000 * 10;
         private final List<FileTransferRequest> pendingFTRequests = new LinkedList<>();
 
         public Connection(Socket allocatedSocket) throws IOException {
@@ -75,7 +75,19 @@ public class Server {
                 System.out.println("New connection to the server established");
                 out.println("GREET " + mapper.writeValueAsString(new SystemMessage(greeting)));
                 while (!allocatedSocket.isClosed()) {
-                    messageHandler(in.readLine());
+                    String message = in.readLine();
+                    if (message == null) {
+                        users.remove(this);
+                        users.forEach(user -> {
+                            try {
+                                user.out.println("LEFT " + mapper.writeValueAsString(new SystemMessage(this.username)));
+                            } catch (JsonProcessingException e) {
+                                throw new RuntimeException(e);
+                            }
+                        });
+                    }
+                    assert message != null;
+                    messageHandler(message);
                 }
             } catch (IOException e) {
 //                throw new RuntimeException(e);
@@ -358,7 +370,7 @@ public class Server {
             public void run() {
                 Timer timer = new Timer("Heartbeat");
                 // Every X milliseconds execute a heartbeat.
-                timer.scheduleAtFixedRate(new HeartbeatTask(), 0, HEARTBEAT_PERIOD);
+                timer.scheduleAtFixedRate(new HeartbeatTask(), HEARTBEAT_PERIOD, HEARTBEAT_PERIOD);
             }
 
             private class HeartbeatTask extends TimerTask {
