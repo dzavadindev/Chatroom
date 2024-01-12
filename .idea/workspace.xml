@@ -4,9 +4,14 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="8d059475-5725-4117-b03b-5be8769edff6" name="Changes" comment="Handshake almost done">
+    <list default="true" id="8d059475-5725-4117-b03b-5be8769edff6" name="Changes" comment="Handshake done, resource not found error handled completely. transferTo WIP">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/client/Client.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/client/Client.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/colors/ANSIColors.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/colors/ANSIColors.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/messages/FileTransferRequest.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/messages/FileTransferRequest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/messages/FileTransferResponse.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/messages/FileTransferResponse.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/server/Server.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/server/Server.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/util/Codes.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/util/Codes.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -83,7 +88,7 @@
       <recent name="messages" />
     </key>
   </component>
-  <component name="RunManager" selected="Application.AServer">
+  <component name="RunManager" selected="Compound.TwoClients">
     <configuration name="AServer" type="Application" factoryName="Application">
       <option name="MAIN_CLASS_NAME" value="server.Server" />
       <module name="chatRoom" />
@@ -146,7 +151,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="jdk-21.0.1-openjdk-21.0.1-249ae16d76d6-a618e4d4" />
+        <option value="jdk-21.0.1-openjdk-21.0.1-f644763e9732-f98dd351" />
       </set>
     </attachedChunks>
   </component>
@@ -196,6 +201,9 @@
       <workItem from="1704878882931" duration="11910000" />
       <workItem from="1704966425416" duration="27000" />
       <workItem from="1704990274461" duration="3260000" />
+      <workItem from="1705052286497" duration="1395000" />
+      <workItem from="1705055249819" duration="26000" />
+      <workItem from="1705065016154" duration="9529000" />
     </task>
     <task id="LOCAL-00001" summary="First steps">
       <option name="closed" value="true" />
@@ -310,6 +318,7 @@
     <MESSAGE value="Before merge to home pc" />
     <MESSAGE value="Updated the Jackson dependencies" />
     <MESSAGE value="Handshake almost done" />
-    <option name="LAST_COMMIT_MESSAGE" value="Handshake almost done" />
+    <MESSAGE value="Handshake done, resource not found error handled completely. transferTo WIP" />
+    <option name="LAST_COMMIT_MESSAGE" value="Handshake done, resource not found error handled completely. transferTo WIP" />
   </component>
 </project>

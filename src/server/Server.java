@@ -44,8 +44,8 @@ public class Server {
                 Connection connection = new Connection(socket);
                 new Thread(connection).start();
             }
-        } catch (Exception err) {
-            throw new RuntimeException(err);
+        } catch (IOException e) {
+            System.err.println("A client has disconnected abruptly");
         }
     }
 
@@ -113,7 +113,11 @@ public class Server {
                         case "GAME_JOIN" -> handleGameJoin(game, json);
                         case "GAME_GUESS" -> handleGameGuess(game, json);
                     }
-                } else sendResponse(type, 711, new NotFound("game", lobbyName));
+                } else {
+                    String notFoundJson = mapper.writeValueAsString(new NotFound("game", lobbyName));
+                    sendResponse(type, 711, notFoundJson);
+                    // todo: Im not sure this is good practice, but hell can I do?
+                }
                 return;
             }
 
@@ -137,33 +141,45 @@ public class Server {
 
         // -----------------------------------   HANDLERS   ------------------------------------------------
 
+        // REQUEST FROM THE INITIATOR TO THE SUBJECT.
+        // SUBJECT: receiver.
+        // INITIATOR: sender.
         private void handleTransferRequest(String json) throws JsonProcessingException {
-            if (!isLoggedIn()) return;
+            if (isNotLoggedIn()) return;
 
             String filename = getPropertyFromJson(json, "filename");
             String receiverName = getPropertyFromJson(json, "receiver");
+            UUID sessionId = UUID.fromString(getPropertyFromJson(json, "sessionId"));
+
+            if (receiverName.equalsIgnoreCase(this.username)) {
+                sendResponse("SEND_FILE", 861, "ERROR");
+                return;
+            }
 
             try {
                 Connection receiver = findUserByUsername(receiverName);
-                FileTransferRequest request = new FileTransferRequest(filename, receiverName, this.username);
-                System.out.println("sending request to the receiver");
+                FileTransferRequest request = new FileTransferRequest(filename, receiver.username, this.username, sessionId);
                 receiver.out.println("TRANSFER_REQUEST " + mapper.writeValueAsString(request));
                 receiver.addPendingFileTransferRequest(request);
                 sendResponse("SEND_FILE", 800, "OK");
             } catch (UserNotFoundException e) {
                 System.err.println(e.getMessage());
-                sendResponse("SEND_FILE", 711, new NotFound("user", username));
+                String notFoundJson = mapper.writeValueAsString(new NotFound("user", receiverName));
+                sendResponse("SEND_FILE", 711, notFoundJson);
             }
         }
 
+        // RESPONSE FROM THE SUBJECT TO THE INITIATOR.
+        // SUBJECT: sender.
+        // INITIATOR: receiver.
         private void handleTransferResponse(String json) throws JsonProcessingException {
-            if (!isLoggedIn()) return;
+            if (isNotLoggedIn()) return;
 
             boolean status = Boolean.parseBoolean(getPropertyFromJson(json, "status"));
-            String senderName = getPropertyFromJson(json, "sender");
+            UUID sessionId = UUID.fromString(getPropertyFromJson(json, "sessionId"));
 
             FileTransferRequest ftr = pendingFTRequests.stream()
-                    .filter(req -> req.sender().equals(senderName))
+                    .filter(req -> req.sessionId().equals(sessionId))
                     .findAny()
                     .orElse(null);
 
@@ -172,15 +188,21 @@ public class Server {
                 return;
             }
 
-            FileTransferResponse fts = new FileTransferResponse(status, this.username, senderName);
+            FileTransferResponse fts = new FileTransferResponse(status, this.username, ftr.sessionId());
             String response = mapper.writeValueAsString(fts);
-            sendResponse("SEND_FILE", 800, response, senderName);
+            sendResponse("SEND_FILE", 800, response, ftr.sender());
             sendResponse("TRANSFER_RESPONSE", 800, "OK");
+            pendingFTRequests.remove(ftr);
+
             // todo: initiate the file transfer (in Client when receiving "true" in contents)
         }
 
+        private void initFileTransfer() {
+
+        }
+
         private void handleGameLaunch(String json) throws JsonProcessingException {
-            if (!isLoggedIn()) return;
+            if (isNotLoggedIn()) return;
 
             String lobby = getPropertyFromJson(json, "lobby");
             if (!lobby.matches(LOBBY_NAME_REGEX)) {
@@ -192,9 +214,7 @@ public class Server {
             newGame.addPlayerToGame(this);
             activeGames.put(lobby, newGame);
             sendResponse("GAME_LAUNCH", 800, "OK");
-            users.stream()
-                    .filter(user -> !user.username.equals(this.username))
-                    .forEach(user -> user.out.println("GAME_LAUNCHED " + wrapInJson("lobby", lobby)));
+            users.stream().filter(user -> !user.username.equals(this.username)).forEach(user -> user.out.println("GAME_LAUNCHED " + wrapInJson("lobby", lobby)));
              /*
              Every game is a separate thread, handling messages that contain "GAME" in it
              messages with "GAME" in it need to be forwarded to the corresponding game (lobby in message).
@@ -212,7 +232,7 @@ public class Server {
         }
 
         private void handleGameJoin(GuessingGame game, String json) throws JsonProcessingException {
-            if (!isLoggedIn()) return;
+            if (isNotLoggedIn()) return;
             if (inGame) {
                 sendResponse("GAME_JOIN", 857, "ERROR");
                 return;
@@ -223,7 +243,7 @@ public class Server {
         }
 
         private void handleGameGuess(GuessingGame game, String json) throws JsonProcessingException {
-            if (!isLoggedIn()) return;
+            if (isNotLoggedIn()) return;
             if (!inGame) {
                 sendResponse("GAME_JOIN", 853, "ERROR");
                 return;
@@ -244,25 +264,27 @@ public class Server {
         }
 
         private void handlePrivate(String json) throws JsonProcessingException {
-            if (!isLoggedIn()) return;
+            if (isNotLoggedIn()) return;
 
             String message = getPropertyFromJson(json, "message");
             String receiverName = getPropertyFromJson(json, "username");
+
             if (this.username.equals(receiverName)) {
-                sendResponse("BROADCAST", 822, "ERROR");
+                sendResponse("PRIVATE", 822, "ERROR");
                 return;
             }
 
             try {
-                Connection receiver = findUserByUsername(username);
+                Connection receiver = findUserByUsername(receiverName);
                 receiver.out.println("PRIVATE " + mapper.writeValueAsString(new BroadcastMessage(this.username, message)));
             } catch (UserNotFoundException e) {
-                sendResponse("BROADCAST", 711, new NotFound("receiver", username));
+                String notFoundJson = mapper.writeValueAsString(new NotFound("receiver", receiverName));
+                sendResponse("PRIVATE", 711, notFoundJson);
             }
         }
 
         private void handleBroadcast(String json) throws JsonProcessingException {
-            if (!isLoggedIn()) return;
+            if (isNotLoggedIn()) return;
 
             String message = getPropertyFromJson(json, "message");
             users.stream().filter(user -> !user.username.equals(this.username)).forEach(user -> {
@@ -282,10 +304,7 @@ public class Server {
 
             String username = getPropertyFromJson(json, "username");
 
-            Connection userWithThisUsername = users.stream()
-                    .filter(user -> user.username.equals(username))
-                    .findAny()
-                    .orElse(null);
+            Connection userWithThisUsername = users.stream().filter(user -> user.username.equals(username)).findAny().orElse(null);
 
             if (userWithThisUsername != null) {
                 sendResponse("LOGIN", 812, "ERROR");
@@ -331,12 +350,11 @@ public class Server {
 
         // -----------------------------------   UTILS   ------------------------------------------------
 
-
-        private void sendResponse(String to, int status, Object content) throws JsonProcessingException {
+        private <T> void sendResponse(String to, int status, T content) throws JsonProcessingException {
             out.println("RESPONSE " + mapper.writeValueAsString(new Response<>(content, status, to)));
         }
 
-        private void sendResponse(String to, int status, Object content, String username) throws JsonProcessingException {
+        private <T> void sendResponse(String to, int status, T content, String username) throws JsonProcessingException {
             try {
                 Connection user = findUserByUsername(username);
                 user.out.println("RESPONSE " + mapper.writeValueAsString(new Response<>(content, status, to)));
@@ -351,12 +369,12 @@ public class Server {
             return receiver;
         }
 
-        private boolean isLoggedIn() throws JsonProcessingException {
+        private boolean isNotLoggedIn() throws JsonProcessingException {
             if (username.isBlank() && !hasLoggedIn) {
                 sendResponse("LOGIN", 710, "ERROR"); // Its not a response TO login, but its universal so-
-                return false;
+                return true;
             }
-            return true;
+            return false;
         }
 
         public void addPendingFileTransferRequest(FileTransferRequest ftr) {

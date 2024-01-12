@@ -2,6 +2,7 @@ package client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import messages.*;
 
@@ -10,6 +11,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.Map.Entry;
 import java.util.MissingFormatArgumentException;
+import java.util.UUID;
 
 import static colors.ANSIColors.*;
 import static util.Util.*;
@@ -22,8 +24,9 @@ public class Client {
     private PrintWriter out;
     private BufferedReader in;
     private ObjectMapper mapper;
-    private String gameLobby = "", LFT_sender = ""; // LFT stands for Latest File Transfer
-    private final String FILE_TRANSFER_DIRECTORY = "src/exchange/"; // LFT stands for Latest File Transfer
+    private String gameLobby = "";
+    private UUID latestFileTransferSessionId;
+    private final String FILE_TRANSFER_DIRECTORY = "src/exchange/";
 
     public Client(String address, int port) {
         try {
@@ -152,6 +155,10 @@ public class Client {
 
     private void direct(String data) throws JsonProcessingException {
         String[] tuple = data.split(" ", 2);
+        if (tuple.length < 2 || tuple.length > 3) {
+            System.err.println("Provide both username and the message");
+            return;
+        }
         String receiver = tuple[0];
         String message = tuple[1];
         out.println("PRIVATE " + mapper.writeValueAsString(new BroadcastMessage(receiver, message)));
@@ -180,24 +187,23 @@ public class Client {
             coloredPrint(ANSI_MAGENTA, "FILE WITH NAME " + filename + " DOES NOT EXIST");
             return;
         }
-        out.println("SEND_FILE " + mapper.writeValueAsString(new FileTransferRequest(filename, receiver, "")));
+        out.println("SEND_FILE " + mapper.writeValueAsString(new FileTransferRequest(filename, receiver, "", UUID.randomUUID())));
     }
 
     private void accept() throws JsonProcessingException {
-        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(true, LFT_sender, "")));
+        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(true, "this.username", latestFileTransferSessionId)));
     }
 
     private void reject() throws JsonProcessingException {
-        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(false, LFT_sender, "")));
+        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(false, "this.username", latestFileTransferSessionId)));
     }
 
-    private void handleResponseMessages(Response<?> response) throws JsonProcessingException {
+    private void handleResponseMessages(Response<?> response) {
         if (response.status() == 800) {
             successfulMessagesHandler(response);
             return;
         }
         String message = codeToMessage.get(response.status());
-
         if (message == null) {
             System.err.println("Server responded with an unknown status code");
             return;
@@ -205,33 +211,24 @@ public class Client {
 
         try {
             if (response.status() == 711) {
-                NotFound notFound = (NotFound) response.content();
+                System.out.println(response);
+                //todo: I receive no this end not a record, but a LinkedHashMap,which I believe is a parent of the record class
+                NotFound notFound = mapper.readValue((String) response.content(), NotFound.class);
                 message = String.format(message, notFound.resource(), notFound.content());
-                System.out.println(message);
+                coloredPrint(ANSI_RED, message);
                 return;
             }
 
             message = String.format(message, response.content());
-            System.out.println(message);
+            coloredPrint(ANSI_RED, message);
         } catch (MissingFormatArgumentException e) {
-            System.out.println(message);
+            coloredPrint(ANSI_RED, message);
+        } catch (JsonProcessingException e) {
+            coloredPrint(ANSI_RED, "Couldn't deserialize JSON from the response");
         }
     }
 
-    private String findDisconnectionReason(String code) {
-        // this should go to the hashmap too
-        switch (code) {
-            case "700" -> {
-                return "Bye bye!";
-            }
-            case "701" -> {
-                return "Disconnected due to inactivity";
-            }
-        }
-        return "Unknown code";
-    }
-
-    private void successfulMessagesHandler(Response<?> response) throws JsonProcessingException {
+    private void successfulMessagesHandler(Response<?> response) {
         switch (response.to()) {
             // the response.content() that is received at this point is an Object instance
             // thus it can be anything. For that reason, casting is required when receiving
@@ -249,28 +246,26 @@ public class Client {
                     coloredPrint(ANSI_GREEN, "Request sent to the user");
                     return;
                 }
-                FileTransferResponse ftr = mapper.readValue((String) response.content(), FileTransferResponse.class);
-                if (ftr.status()) {
-                    coloredPrint(ANSI_GREEN, ftr.sender() + " has ACCEPTED your file transfer inquiry! Preparing transmission...");
-                    initFileTransfer();
-                } else
-                    coloredPrint(ANSI_GREEN, ftr.sender() + " has REJECTED your file transfer inquiry.");
+                try {
+                    FileTransferResponse ftr = mapper.readValue((String) response.content(), FileTransferResponse.class);
+
+                    if (ftr.status())
+                        coloredPrint(ANSI_GREEN, ftr.sender() + " has ACCEPTED your file transfer inquiry! Preparing transmission...");
+                    else coloredPrint(ANSI_GREEN, ftr.sender() + " has REJECTED your file transfer inquiry.");
+                } catch (JsonProcessingException e) {
+                    System.err.println("Failed to parse the response to the file transfer response format");
+                }
             }
             default -> System.out.println("OK status received. Unknown destination of the response: " + response.to());
         }
     }
 
-    private void initFileTransfer() {
-    }
 
     private void handleServerMessage(String message) throws IOException {
+//        System.out.println(message);
         String[] messageParts = message.split(" ", 2);
         String type = messageParts[0];
         String json = messageParts.length == 2 ? messageParts[1] : "";
-
-        // todo: DEBUGGING - the accepted/rejected response is not received by the sender
-
-        // todo: EVEN FUCKING SENDING STOPPED WORKING??????????????
 
         switch (type) {
             case "RESPONSE" -> {
@@ -326,7 +321,7 @@ public class Client {
             case "TRANSFER_REQUEST" -> {
                 FileTransferRequest ftm = mapper.readValue(json, FileTransferRequest.class);
                 coloredPrint(ANSI_GREEN, "You are receiving an inquiry for file exchange from " + ftm.sender() + " (" + ftm.filename() + ")");
-                LFT_sender = ftm.sender();
+                latestFileTransferSessionId = ftm.sessionId();
             }
             case "PARSE_ERROR" -> coloredPrint(ANSI_MAGENTA, "Parse error occurred processing your message");
             default -> coloredPrint(ANSI_MAGENTA, "Unknown message type or command from the server");

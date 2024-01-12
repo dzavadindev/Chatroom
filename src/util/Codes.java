@@ -11,6 +11,7 @@ public class Codes {
             // 810-819 reserved for login codes,
             entry(810, "You can't log in twice"),
             entry(811, "Invalid username format"),
+            entry(812, "User with this username already exists"),
             // 820-829 reserved for message related codes
             entry(822, "Cannot send a private message to yourself"),
             // 830-839 reserved for heartbeat codes
@@ -26,6 +27,8 @@ public class Codes {
             entry(856, "Your guess in not in the games range: %s"), // response.content( is the game range)
             entry(857, "Can't join two games at the same time"),
             // 860-869 reserved for file transfer related errors,
+            entry(860, "You have not received a file transfer request to accept or deny"),
+            entry(861, "You cannot send a file to yourself"),
             // 700-710 reserved for disconnection reasons,
             entry(700, "Pong timeout"),
             entry(701, "Unterminated message"),
