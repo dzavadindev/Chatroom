@@ -8,24 +8,32 @@ import messages.*;
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.MissingFormatArgumentException;
-import java.util.UUID;
 
 import static colors.ANSIColors.*;
 import static util.Util.*;
 import static util.Codes.codeToMessage;
 
 public class Client {
-
+    // --------------- tools ---------------
     private Socket socket;
     private BufferedReader consoleReader;
     private PrintWriter out;
     private BufferedReader in;
     private ObjectMapper mapper;
+    // --------------- features ---------------
     private String gameLobby = "";
     private UUID latestFileTransferSessionId;
-    private final String FILE_TRANSFER_DIRECTORY = "src/exchange/";
+    private File latestSelectedFile;
+    // --------------- config ---------------
+    private final static String FILE_TRANSFER_DIRECTORY = "src/exchange/";
+    private final static String SERVER_ADDRESS = "127.0.0.1";
+    private final static int SERVER_PORT = 1337, FILE_TRNSFER_PORT = 1338;
 
     public Client(String address, int port) {
         try {
@@ -57,8 +65,11 @@ public class Client {
     }
 
     public static void main(String[] args) {
-        new Client("127.0.0.1", 1337);
+        new Client(SERVER_ADDRESS, SERVER_PORT);
     }
+
+    // ----------------------------   SENDER AND LISTENER   -----------------------------------------
+    // --------------------------   TO AND FROM THE SERVER   ----------------------------------------
 
     private class Sender implements Runnable {
         @Override
@@ -91,6 +102,8 @@ public class Client {
             }
         }
     }
+
+    // ------------------------------   COMMAND HANDLERS   -------------------------------------------
 
     private void menu() throws IOException {
         String option = consoleReader.readLine();
@@ -131,7 +144,6 @@ public class Client {
         System.out.println("###### When specifying the file for transmission, include only the name and extension");
         System.out.println("### !accept/reject - accept or decline the latest file transfer offered");
     }
-
 
     private void create(String lobby) {
         out.println("GAME_LAUNCH " + wrapInJson("lobby", lobby));
@@ -181,16 +193,27 @@ public class Client {
         String[] params = content.split(" ", 2);
         String filename = params[0];
         String receiver = params[1];
-        File file = new File(FILE_TRANSFER_DIRECTORY + filename);
-        if (!file.exists()) {
+        latestSelectedFile = new File(FILE_TRANSFER_DIRECTORY + filename);
+        if (!latestSelectedFile.exists()) {
             coloredPrint(ANSI_MAGENTA, "FILE WITH NAME " + filename + " DOES NOT EXIST");
             return;
         }
-        out.println("SEND_FILE " + mapper.writeValueAsString(new FileTransferRequest(filename, receiver, "", UUID.randomUUID())));
+        String checksum;
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            md.update(Files.readAllBytes(latestSelectedFile.toPath()));
+            byte[] digest = md.digest();
+            checksum = HexFormat.of().formatHex(digest).toLowerCase();
+            System.out.println(checksum);
+            out.println("SEND_FILE " + mapper.writeValueAsString(new FileTransferRequest(filename, receiver, "", UUID.randomUUID())));
+        } catch (NoSuchAlgorithmException | IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private void accept() throws JsonProcessingException {
         out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(true, "this.username", latestFileTransferSessionId)));
+        initFileTransfer(latestFileTransferSessionId);
     }
 
     private void reject() throws JsonProcessingException {
@@ -248,9 +271,10 @@ public class Client {
                 try {
                     FileTransferResponse ftr = mapper.readValue((String) response.content(), FileTransferResponse.class);
 
-                    if (ftr.status())
+                    if (ftr.status()) {
                         coloredPrint(ANSI_GREEN, ftr.sender() + " has ACCEPTED your file transfer inquiry! Preparing transmission...");
-                    else coloredPrint(ANSI_GREEN, ftr.sender() + " has REJECTED your file transfer inquiry.");
+                        initFileTransfer(ftr.sessionId(), latestSelectedFile);
+                    } else coloredPrint(ANSI_GREEN, ftr.sender() + " has REJECTED your file transfer inquiry.");
                 } catch (JsonProcessingException e) {
                     System.err.println("Failed to parse the response to the file transfer response format");
                 }
@@ -259,6 +283,59 @@ public class Client {
         }
     }
 
+    // -----------------------------------   UTILS   ------------------------------------------------
+    private void initFileTransfer(UUID sessionId, File file) {
+        try (Socket receiverSocket = new Socket(SERVER_ADDRESS, FILE_TRNSFER_PORT)) {
+            OutputStream output = receiverSocket.getOutputStream();
+            byte[] receiverData = createByteArray('S', sessionId, file);
+            new ByteArrayInputStream(receiverData).transferTo(output);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void initFileTransfer(UUID sessionId) {
+        try (Socket senderSocket = new Socket(SERVER_ADDRESS, FILE_TRNSFER_PORT)) {
+            OutputStream output = senderSocket.getOutputStream();
+            InputStream input = senderSocket.getInputStream();
+            byte[] senderData = createByteArray('R', sessionId);
+            new ByteArrayInputStream(senderData).transferTo(output);
+//            new ByteArrayInputStream(input.readAllBytes()); // Like this?
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private byte[] createByteArray(char letter, UUID uuid, File file) throws IOException {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        outputStream.write(createByteArray(letter, uuid));
+
+        // Write File Contents
+        FileInputStream fileInputStream = new FileInputStream(file);
+        byte[] fileBuffer = new byte[1024];
+        int bytesRead;
+        while ((bytesRead = fileInputStream.read(fileBuffer)) != -1) {
+            outputStream.write(fileBuffer, 0, bytesRead);
+        }
+        fileInputStream.close();
+
+        return outputStream.toByteArray();
+    }
+
+    private byte[] createByteArray(char letter, UUID uuid) throws IOException {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        // Write Letter
+        outputStream.write((byte) letter);
+
+        // Write UUID
+        byte[] uuidBytes = uuid.toString().getBytes(StandardCharsets.UTF_8);
+        outputStream.write(uuidBytes);
+
+        return outputStream.toByteArray();
+    }
+
+    // --------------------------   RECEIVED MESSAGE HANDLER   ---------------------------------------
 
     private void handleServerMessage(String message) throws IOException {
 //        System.out.println(message);

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import exceptions.UserNotFoundException;
+import features.FileTransferThread;
 import features.GuessingGame;
 import messages.*;
 
@@ -23,6 +24,7 @@ public class Server {
     private final Set<Connection> users = new HashSet<>();
     private final ConcurrentHashMap<String, GuessingGame> activeGames = new ConcurrentHashMap<>();
     private final int GAME_UPPER_BOUND = 50, GAME_LOWER_BOUND = 1;
+    private final int FILE_TRANSFER_PORT = 1338;
     private final String greeting = "Welcome to the chatroom! Please login to start chatting!";
 
     public Server(int SERVER_PORT) {
@@ -38,6 +40,7 @@ public class Server {
 
     private void startServer(int port) {
         System.out.println("Server now running on port " + port);
+        new Thread(new FileTransferThread(FILE_TRANSFER_PORT)).start();
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             while (true) {
                 Socket socket = serverSocket.accept();
@@ -78,6 +81,7 @@ public class Server {
                     String message = in.readLine();
                     if (message == null) {
                         users.remove(this);
+                        // todo: if closed abruptly or due to an exception, spams the LEFT message
                         users.forEach(user -> {
                             try {
                                 user.out.println("LEFT " + mapper.writeValueAsString(new SystemMessage(this.username)));
@@ -195,10 +199,6 @@ public class Server {
             pendingFTRequests.remove(ftr);
 
             // todo: initiate the file transfer (in Client when receiving "true" in contents)
-        }
-
-        private void initFileTransfer() {
-
         }
 
         private void handleGameLaunch(String json) throws JsonProcessingException {
