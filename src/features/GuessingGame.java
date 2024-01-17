@@ -10,6 +10,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import static util.Util.*;
+
 public class GuessingGame implements Runnable {
     // -----------------------------------   SETUP   ------------------------------------------------
 
@@ -19,13 +21,13 @@ public class GuessingGame implements Runnable {
     // -----------------------------------   CONSTANTS   ------------------------------------------------
 
     private final int COLLECTION_PERIOD = 1;
-    private final int GAME_TIMER = 5;
+    private final int GAME_TIMER = 1;
 
     // -----------------------------------   CONFIG   ------------------------------------------------
 
     private final int answer;
     private final String lobbyName;
-    private boolean acceptingPlayers = true;
+    private boolean collectionPeriod = true, guessingPeriod = false;
 
 
     public GuessingGame(String lobbyName, int lower, int upper) {
@@ -42,14 +44,14 @@ public class GuessingGame implements Runnable {
 
     public void handleGameJoin(Connection player) {
         try {
-            if (acceptingPlayers) {
+            if (collectionPeriod) {
                 if (isInGame(player)) {
                     player.sendResponse("GAME_JOIN", 858, lobbyName);
                     return;
                 }
                 players.add(player);
 //              notifyEveryone(); // todo?
-                player.sendResponse("GAME_JOIN", 800, "OK");
+                player.sendResponse("GAME_JOIN", 800, lobbyName);
             } else {
                 player.sendResponse("GAME_JOIN", 859, lobbyName);
             }
@@ -60,16 +62,19 @@ public class GuessingGame implements Runnable {
 
     public void handleGameGuess(Connection player, int guess) {
         try {
-            if (isInGame(player)) {
-                player.sendResponse("GAME_JOIN", 858, lobbyName);
-                return;
-            }
-            if (guess > answer)
-                player.sendResponse("GAME_GUESS", 800, 1);
-            else if (guess < answer)
-                player.sendResponse("GAME_GUESS", 800, -1);
-            else
-                player.sendResponse("GAME_GUESS", 800, 0);
+            if (guessingPeriod) {
+                if (isInGame(player)) {
+                    player.sendResponse("GAME_JOIN", 858, lobbyName);
+                    return;
+                }
+                if (guess > answer)
+                    player.sendResponse("GAME_GUESS", 800, 1);
+                else if (guess < answer)
+                    player.sendResponse("GAME_GUESS", 800, -1);
+                else
+                    player.sendResponse("GAME_GUESS", 800, 0);
+            } else player.sendResponse("GAME_GUESS", 851, "ERROR");
+            // todo add 851 as code for guessing during collection period
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
@@ -91,21 +96,26 @@ public class GuessingGame implements Runnable {
 
     // -----------------------------------   GAME LIFECYCLE   ------------------------------------------------
 
-    class CollectionPeriod extends TimerTask {
+    class CollectionPeriod implements Runnable {
         @Override
         public void run() {
+            System.out.println("Started the game at '" + lobbyName + "'");
             for (Connection player : players) {
                 leaderboard.put(player.username, (long) GAME_TIMER);
+                player.sendMessageToClient("GAME_START " + wrapInJson("lobby", lobbyName));
             }
-            acceptingPlayers = false;
+            collectionPeriod = false;
+            guessingPeriod = true;
         }
     }
 
-    class EndGame extends TimerTask {
+    class EndGame implements Runnable {
         @Override
         public void run() {
             try {
+                System.out.println("Ended the game at lobby '" + lobbyName + "'");
                 ObjectMapper mapper = new ObjectMapper();
+                players.forEach(Connection::leaveGame);
                 notifyEveryone("GAME_END " + mapper.writeValueAsString(new Leaderboard(lobbyName, leaderboard)));
                 Thread.currentThread().interrupt(); // todo: does this interrupt the main, or the task thread?
             } catch (JsonProcessingException e) {

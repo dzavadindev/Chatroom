@@ -7,6 +7,7 @@ public abstract class ANSIColors {
     public static final String ANSI_RED = "\u001B[31m";
     public static final String ANSI_MAGENTA = "\u001B[35m";
     public static final String ANSI_YELLOW = "\u001B[33m";
+    public static final String ANSI_GREY = "\\e[38;5;248m";
 
     public static void coloredPrint(String color, String message) {
         System.out.println(color + message + ANSI_RESET);

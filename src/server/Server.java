@@ -29,7 +29,8 @@ public class Server {
 
     private final String LOBBY_NAME_REGEX = "^[a-zA-Z0-9-_]+$"; // Name validity
     private final String USER_NAME_REGEX = "^[a-zA-Z0-9-_]{3,14}$"; // Name validity
-    private final int GAME_UPPER_BOUND = 50, GAME_LOWER_BOUND = 1; // Game config
+    private final int GAME_UPPER_BOUND = 50; // Game config
+    private final int GAME_LOWER_BOUND = 1; // Game config
     private final int FILE_TRANSFER_PORT = 1338; // Port for file transfer thread
     private final long HEARTBEAT_REACTION = 2; // Heartbeat Executor is working with seconds
     private final long HEARTBEAT_PERIOD = 10; // Heartbeat Executor is working with seconds
@@ -248,7 +249,6 @@ public class Server {
             }
             game.handleGameJoin(this);
             inGame = true;
-            sendResponse("GAME_JOIN", 800, "OK");
         }
 
         private void handleGameGuess(GuessingGame game, String json) throws JsonProcessingException {
@@ -260,7 +260,6 @@ public class Server {
             try {
                 int guess = Integer.parseInt(getPropertyFromJson(json, "guess"));
                 game.handleGameGuess(this, guess);
-                sendResponse("GAME_GUESS", 800, "OK");
             } catch (NumberFormatException e) {
                 sendResponse("GAME_GUESS", 855, "ERROR");
             }
@@ -358,6 +357,20 @@ public class Server {
 
         // -----------------------------------   UTILS   ------------------------------------------------
 
+        private Connection findUserByUsername(String username) throws UserNotFoundException {
+            Connection receiver = users.stream().filter(user -> user.username.equals(username)).findAny().orElse(null);
+            if (receiver == null) throw new UserNotFoundException(username);
+            return receiver;
+        }
+
+        private boolean isNotLoggedIn() throws JsonProcessingException {
+            if (username.isBlank() && !hasLoggedIn) {
+                sendResponse("LOGIN", 710, "ERROR"); // Its not a response TO login, but its universal so-
+                return true;
+            }
+            return false;
+        }
+
         public void sendMessageToClient(String message) {
             out.println(message);
         }
@@ -375,22 +388,12 @@ public class Server {
             }
         }
 
-        private Connection findUserByUsername(String username) throws UserNotFoundException {
-            Connection receiver = users.stream().filter(user -> user.username.equals(username)).findAny().orElse(null);
-            if (receiver == null) throw new UserNotFoundException(username);
-            return receiver;
-        }
-
-        private boolean isNotLoggedIn() throws JsonProcessingException {
-            if (username.isBlank() && !hasLoggedIn) {
-                sendResponse("LOGIN", 710, "ERROR"); // Its not a response TO login, but its universal so-
-                return true;
-            }
-            return false;
-        }
-
         public void addPendingFileTransferRequest(FileTransferRequest ftr) {
             pendingFTRequests.add(ftr);
+        }
+
+        public void leaveGame() {
+            inGame = false;
         }
 
         // -----------------------------------   HEARTBEAT   ------------------------------------------------

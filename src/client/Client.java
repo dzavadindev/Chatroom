@@ -259,10 +259,18 @@ public class Client {
 
             // case "COMMAND" -> System.out.println(((ArrayList<String>) response.content())
 
-            case "LOGIN" -> System.out.println("Logged in successfully!");
+            case "LOGIN" -> coloredPrint(ANSI_CYAN, "Logged in successfully!");
             case "LIST" -> System.out.println(response.content());
-            case "GAME_LAUNCH" -> System.out.println("Game started!");
             case "TRANSFER_RESPONSE" -> coloredPrint(ANSI_GREEN, "Your response was sent to the sender");
+            case "GAME_LAUNCH" -> coloredPrint(ANSI_YELLOW, "Game started!");
+            case "GAME_JOIN" -> coloredPrint(ANSI_YELLOW, "Joined the game at " + response.content());
+            case "GAME_GUESS" -> {
+                switch ((int) response.content()) {
+                    case -1 -> coloredPrint(ANSI_YELLOW, "Your guess is lesser then the answer");
+                    case 0 -> coloredPrint(ANSI_YELLOW, "You have guessed the number!");
+                    case 1 -> coloredPrint(ANSI_YELLOW, "Your guess is greater then the answer");
+                }
+            }
             case "SEND_FILE" -> {
                 if (response.content().equals("OK")) {
                     coloredPrint(ANSI_GREEN, "Request sent to the user");
@@ -276,10 +284,11 @@ public class Client {
                         initFileTransfer(ftr.sessionId(), latestSelectedFile);
                     } else coloredPrint(ANSI_GREEN, ftr.sender() + " has REJECTED your file transfer inquiry.");
                 } catch (JsonProcessingException e) {
-                    System.err.println("Failed to parse the response to the file transfer response format");
+                    coloredPrint(ANSI_RED, "Failed to parse the response to the file transfer response format");
                 }
             }
-            default -> System.out.println("OK status received. Unknown destination of the response: " + response.to());
+            default ->
+                    coloredPrint(ANSI_GREY, "OK status received. Unknown destination of the response: " + response.to());
         }
     }
 
@@ -388,7 +397,7 @@ public class Client {
             }
             case "PING" -> out.println("PONG");
             case "GAME_LAUNCHED" ->
-                    coloredPrint(ANSI_YELLOW, "A new game is brewing in lobby " + getPropertyFromJson(json, "lobby") + "! Join in!");
+                    coloredPrint(ANSI_YELLOW, "A new game is brewing in lobby '" + getPropertyFromJson(json, "lobby") + "'! Join in!");
             case "GAME_START" ->
                     coloredPrint(ANSI_YELLOW, "The game in lobby \"" + getPropertyFromJson(json, "lobby") + "\" elapsed!");
             case "GAME_GUESSED" ->

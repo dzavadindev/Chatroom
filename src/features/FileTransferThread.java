@@ -33,7 +33,7 @@ public class FileTransferThread implements Runnable {
         }
     }
 
-    private class FileTransferActor implements Runnable {
+    private static class FileTransferActor implements Runnable {
         private final OutputStream out;
         private final InputStream in;
 
