@@ -3,13 +3,17 @@ package features;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 public class FileTransferThread implements Runnable {
 
+    // -----------------------------------   CONSTANTS   ------------------------------------------------
+
     private int FILE_TRANSFER_PORT = 1338;
+    private final int UUID_LENGTH = 16;
     private Map<UUID, Session> sessions;
 
     public FileTransferThread(int port) {
@@ -29,8 +33,7 @@ public class FileTransferThread implements Runnable {
         }
     }
 
-    private static class FileTransferActor implements Runnable {
-        private final int UUID_LENGTH = 32;
+    private class FileTransferActor implements Runnable {
         private final OutputStream out;
         private final InputStream in;
 
@@ -45,49 +48,26 @@ public class FileTransferThread implements Runnable {
 
         @Override
         public void run() {
-            // [1byte-S][32byte-Session UUID][?bytes-File Bytes]
-            try {
-                byte[] buffer = new byte[1024];
-                int bytesRead;
-
-                // Temporary buffer to store the first 33 bytes (1 byte for letter, 32 bytes for UUID)
-                byte[] tempBuffer = new byte[1 + UUID_LENGTH];
-                int tempBufferFilled = 0;
-
-                while ((bytesRead = in.read(buffer)) != -1) {
-                    for (int i = 0; i < bytesRead; i++) {
-                        if (tempBufferFilled < tempBuffer.length) {
-                            tempBuffer[tempBufferFilled++] = buffer[i];
-                        }
-
-                        if (tempBufferFilled == tempBuffer.length) {
-                            // We have our 1 byte letter and 32 bytes UUID, process them
-                            processFirstByteAndUUID(tempBuffer);
-                        }
-                    }
-                }
-
-                // Handle case if the stream ends before we get 33 bytes
-                if (tempBufferFilled > 0) {
-                    System.out.println("Stream ended before we could read 33 bytes");
-                    // Handle this situation as required
-                }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
-
-        private void processFirstByteAndUUID(byte[] data) {
-            byte firstByte = data[0];
-            byte[] uuidBytes = new byte[UUID_LENGTH];
-            System.arraycopy(data, 1, uuidBytes, 0, UUID_LENGTH);
-
-            // Now process the first byte and UUID bytes
-            System.out.println("First byte: " + (char) firstByte);
-            System.out.println("UUID bytes: " + new String(uuidBytes));
-            // Add your processing logic here
+            // [1byte-S][16byte-Session UUID][?bytes-File Bytes]
+//            try {
+//            } catch (IOException e) {
+//                throw new RuntimeException(e);
+//            }
         }
     }
+
+    // -----------------------------------   MESSAGE HANDLING   ------------------------------------------------
+
+
+    public static UUID convertBytesToUUID(byte[] bytes) {
+        ByteBuffer byteBuffer = ByteBuffer.wrap(bytes);
+        long high = byteBuffer.getLong();
+        long low = byteBuffer.getLong();
+        return new UUID(high, low);
+    }
+
+    // -----------------------------------   MESSAGE HANDLING   ------------------------------------------------
+
 
     private static class Session {
         private UUID sessionId;

@@ -1,6 +1,6 @@
 package messages;
 
-import java.util.HashMap;
+import java.util.Map;
 
-public record Leaderboard(String lobby, HashMap<String, Integer> leaderboard) {
+public record Leaderboard(String lobby, Map<String, Long> leaderboard) {
 }

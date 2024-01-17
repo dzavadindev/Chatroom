@@ -12,19 +12,30 @@ import java.io.*;
 import java.util.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 import static util.Util.*;
 
 public class Server {
+
+    // -----------------------------------   SETUP   ------------------------------------------------
+
     private final ObjectMapper mapper;
-    private final String LOBBY_NAME_REGEX = "^[a-zA-Z0-9-_]+$";
-    private final String USER_NAME_REGEX = "^[a-zA-Z0-9-_]{3,14}$";
     private final Set<Connection> users = new HashSet<>();
     private final ConcurrentHashMap<String, GuessingGame> activeGames = new ConcurrentHashMap<>();
-    private final int GAME_UPPER_BOUND = 50, GAME_LOWER_BOUND = 1;
-    private final int FILE_TRANSFER_PORT = 1338;
+
+    // -----------------------------------   CONSTANTS   ------------------------------------------------
+
+    private final String LOBBY_NAME_REGEX = "^[a-zA-Z0-9-_]+$"; // Name validity
+    private final String USER_NAME_REGEX = "^[a-zA-Z0-9-_]{3,14}$"; // Name validity
+    private final int GAME_UPPER_BOUND = 50, GAME_LOWER_BOUND = 1; // Game config
+    private final int FILE_TRANSFER_PORT = 1338; // Port for file transfer thread
+    private final long HEARTBEAT_REACTION = 2; // Heartbeat Executor is working with seconds
+    private final long HEARTBEAT_PERIOD = 10; // Heartbeat Executor is working with seconds
+
+    // -----------------------------------   CONFIG   ------------------------------------------------
+
     private final String greeting = "Welcome to the chatroom! Please login to start chatting!";
 
     public Server(int SERVER_PORT) {
@@ -59,9 +70,7 @@ public class Server {
         private final PrintWriter out;
         private final BufferedReader in;
         private boolean alive = true, hasLoggedIn = false, inGame = false;
-        private String username = "";
-        private final long HEARTBEAT_REACTION = 1000 * 2;
-        private final long HEARTBEAT_PERIOD = 1000 * 10;
+        public String username = "";
         private final List<FileTransferRequest> pendingFTRequests = new LinkedList<>();
 
         public Connection(Socket allocatedSocket) throws IOException {
@@ -120,11 +129,9 @@ public class Server {
                 } else {
                     String notFoundJson = mapper.writeValueAsString(new NotFound("game", lobbyName));
                     sendResponse(type, 711, notFoundJson);
-                    // todo: Im not sure this is good practice, but hell can I do?
                 }
                 return;
             }
-
 
             try {
                 switch (type) {
@@ -211,10 +218,12 @@ public class Server {
             }
 
             GuessingGame newGame = new GuessingGame(lobby, GAME_LOWER_BOUND, GAME_UPPER_BOUND);
-            newGame.addPlayerToGame(this);
+            newGame.handleGameJoin(this);
             activeGames.put(lobby, newGame);
             sendResponse("GAME_LAUNCH", 800, "OK");
-            users.stream().filter(user -> !user.username.equals(this.username)).forEach(user -> user.out.println("GAME_LAUNCHED " + wrapInJson("lobby", lobby)));
+            users.stream()
+                    .filter(user -> !user.username.equals(this.username))
+                    .forEach(user -> user.out.println("GAME_LAUNCHED " + wrapInJson("lobby", lobby)));
              /*
              Every game is a separate thread, handling messages that contain "GAME" in it
              messages with "GAME" in it need to be forwarded to the corresponding game (lobby in message).
@@ -237,7 +246,7 @@ public class Server {
                 sendResponse("GAME_JOIN", 857, "ERROR");
                 return;
             }
-            game.addPlayerToGame(this);
+            game.handleGameJoin(this);
             inGame = true;
             sendResponse("GAME_JOIN", 800, "OK");
         }
@@ -248,14 +257,13 @@ public class Server {
                 sendResponse("GAME_JOIN", 853, "ERROR");
                 return;
             }
-            int guess = 0;
             try {
-                guess = Integer.parseInt(getPropertyFromJson(json, "guess"));
+                int guess = Integer.parseInt(getPropertyFromJson(json, "guess"));
+                game.handleGameGuess(this, guess);
+                sendResponse("GAME_GUESS", 800, "OK");
             } catch (NumberFormatException e) {
                 sendResponse("GAME_GUESS", 855, "ERROR");
             }
-            System.out.println(guess);
-            sendResponse("GAME_GUESS", 800, "OK");
         }
 
         private void handleList() throws JsonProcessingException {
@@ -350,11 +358,15 @@ public class Server {
 
         // -----------------------------------   UTILS   ------------------------------------------------
 
-        private <T> void sendResponse(String to, int status, T content) throws JsonProcessingException {
+        public void sendMessageToClient(String message) {
+            out.println(message);
+        }
+
+        public <T> void sendResponse(String to, int status, T content) throws JsonProcessingException {
             out.println("RESPONSE " + mapper.writeValueAsString(new Response<>(content, status, to)));
         }
 
-        private <T> void sendResponse(String to, int status, T content, String username) throws JsonProcessingException {
+        public <T> void sendResponse(String to, int status, T content, String username) throws JsonProcessingException {
             try {
                 Connection user = findUserByUsername(username);
                 user.out.println("RESPONSE " + mapper.writeValueAsString(new Response<>(content, status, to)));
@@ -386,9 +398,9 @@ public class Server {
         private class Heartbeat implements Runnable {
             @Override
             public void run() {
-                Timer timer = new Timer("Heartbeat");
+                ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
                 // Every X milliseconds execute a heartbeat.
-                timer.scheduleAtFixedRate(new HeartbeatTask(), HEARTBEAT_PERIOD, HEARTBEAT_PERIOD);
+                executor.scheduleAtFixedRate(new HeartbeatTask(), HEARTBEAT_PERIOD, HEARTBEAT_PERIOD, TimeUnit.SECONDS);
             }
 
             private class HeartbeatTask extends TimerTask {

@@ -8,7 +8,7 @@ import messages.*;
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
-import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -189,7 +189,7 @@ public class Client {
         out.println("LOGIN " + wrapInJson("username", username));
     }
 
-    private void file(String content) throws JsonProcessingException {
+    private void file(String content) {
         String[] params = content.split(" ", 2);
         String filename = params[0];
         String receiver = params[1];
@@ -306,6 +306,13 @@ public class Client {
         }
     }
 
+    public static byte[] convertUUIDToBytes(UUID uuid) {
+        ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
+        bb.putLong(uuid.getMostSignificantBits());
+        bb.putLong(uuid.getLeastSignificantBits());
+        return bb.array();
+    }
+
     private byte[] createByteArray(char letter, UUID uuid, File file) throws IOException {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         outputStream.write(createByteArray(letter, uuid));
@@ -329,7 +336,7 @@ public class Client {
         outputStream.write((byte) letter);
 
         // Write UUID
-        byte[] uuidBytes = uuid.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] uuidBytes = convertUUIDToBytes(uuid);
         outputStream.write(uuidBytes);
 
         return outputStream.toByteArray();
@@ -390,7 +397,7 @@ public class Client {
                 Leaderboard leaderboard = mapper.readValue(json, Leaderboard.class);
                 coloredPrint(ANSI_YELLOW, "Game in lobby " + leaderboard.lobby() + " has ended! Here is the scoreboard:");
                 int index = 1;
-                for (Entry<String, Integer> score : leaderboard.leaderboard().entrySet()) {
+                for (Entry<String, Long> score : leaderboard.leaderboard().entrySet()) {
                     coloredPrint(ANSI_YELLOW, index + ".) " + score.getKey() + ": " + score.getValue() + "ms");
                 }
             }
