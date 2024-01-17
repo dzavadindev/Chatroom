@@ -29,8 +29,6 @@ public class Server {
 
     private final String LOBBY_NAME_REGEX = "^[a-zA-Z0-9-_]+$"; // Name validity
     private final String USER_NAME_REGEX = "^[a-zA-Z0-9-_]{3,14}$"; // Name validity
-    private final int GAME_UPPER_BOUND = 50; // Game config
-    private final int GAME_LOWER_BOUND = 1; // Game config
     private final int FILE_TRANSFER_PORT = 1338; // Port for file transfer thread
     private final long HEARTBEAT_REACTION = 2; // Heartbeat Executor is working with seconds
     private final long HEARTBEAT_PERIOD = 10; // Heartbeat Executor is working with seconds
@@ -122,9 +120,10 @@ public class Server {
                 }
                 String lobbyName = getPropertyFromJson(json, "lobby");
                 GuessingGame game = activeGames.get(lobbyName);
+
                 if (game != null) {
                     switch (type) {
-                        case "GAME_JOIN" -> handleGameJoin(game, json);
+                        case "GAME_JOIN" -> handleGameJoin(game);
                         case "GAME_GUESS" -> handleGameGuess(game, json);
                     }
                 } else {
@@ -212,56 +211,46 @@ public class Server {
         private void handleGameLaunch(String json) throws JsonProcessingException {
             if (isNotLoggedIn()) return;
 
-            String lobby = getPropertyFromJson(json, "lobby");
-            if (!lobby.matches(LOBBY_NAME_REGEX)) {
-                sendResponse("GAME_LAUNCH", 852, lobby);
+            String lobbyName = getPropertyFromJson(json, "lobby");
+            if (!lobbyName.matches(LOBBY_NAME_REGEX)) {
+                sendResponse("GAME_LAUNCH", 850, lobbyName);
                 return;
             }
 
-            GuessingGame newGame = new GuessingGame(lobby, GAME_LOWER_BOUND, GAME_UPPER_BOUND);
-            newGame.handleGameJoin(this);
-            activeGames.put(lobby, newGame);
+            GuessingGame newGame = new GuessingGame(lobbyName, this);
+            inGame = true;
+            new Thread(newGame).start();
             sendResponse("GAME_LAUNCH", 800, "OK");
+            activeGames.put(lobbyName, newGame);
             users.stream()
                     .filter(user -> !user.username.equals(this.username))
-                    .forEach(user -> user.out.println("GAME_LAUNCHED " + wrapInJson("lobby", lobby)));
-             /*
-             Every game is a separate thread, handling messages that contain "GAME" in it
-             messages with "GAME" in it need to be forwarded to the corresponding game (lobby in message).
-             The forwarding is done by getting the list of games, and checking if the
-             list of players contains the one player that send the request.
+                    .forEach(user -> user.out.println("GAME_LAUNCHED " + wrapInJson("lobby", lobbyName)));
 
-             DESIGN:
-             Along the game containing the players make the user contain what game they are in,
-             storing either "" or the name of the lobby this allows for reducing the computations
-             on the server side.
-             (going through every active game and check for the presence of a user in it)
+            // TODO create a sequence diagram for the flow of a game
 
-             TODO create a sequence diagram for the flow of a game
-             */
         }
 
-        private void handleGameJoin(GuessingGame game, String json) throws JsonProcessingException {
+        private void handleGameJoin(GuessingGame game) throws JsonProcessingException {
             if (isNotLoggedIn()) return;
             if (inGame) {
-                sendResponse("GAME_JOIN", 857, "ERROR");
+                sendResponse("GAME_JOIN", 855, "ERROR");
                 return;
             }
-            game.handleGameJoin(this);
-            inGame = true;
+            if (game.handleGameJoin(this))
+                inGame = true;
         }
 
         private void handleGameGuess(GuessingGame game, String json) throws JsonProcessingException {
             if (isNotLoggedIn()) return;
             if (!inGame) {
-                sendResponse("GAME_JOIN", 853, "ERROR");
+                sendResponse("GAME_GUESS", 852, "ERROR");
                 return;
             }
             try {
                 int guess = Integer.parseInt(getPropertyFromJson(json, "guess"));
                 game.handleGameGuess(this, guess);
             } catch (NumberFormatException e) {
-                sendResponse("GAME_GUESS", 855, "ERROR");
+                sendResponse("GAME_GUESS", 853, "ERROR");
             }
         }
 

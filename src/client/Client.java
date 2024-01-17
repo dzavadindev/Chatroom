@@ -156,7 +156,7 @@ public class Client {
     }
 
     private void guess(String guess) throws JsonProcessingException {
-        out.println("GAME_GUESS " + mapper.writeValueAsString(guess));
+        out.println("GAME_GUESS " + mapper.writeValueAsString(new GameGuess(gameLobby, Integer.parseInt(guess))));
     }
 
     private void leave() {
@@ -263,12 +263,15 @@ public class Client {
             case "LIST" -> System.out.println(response.content());
             case "TRANSFER_RESPONSE" -> coloredPrint(ANSI_GREEN, "Your response was sent to the sender");
             case "GAME_LAUNCH" -> coloredPrint(ANSI_YELLOW, "Game started!");
-            case "GAME_JOIN" -> coloredPrint(ANSI_YELLOW, "Joined the game at " + response.content());
+            case "GAME_JOIN" -> {
+                coloredPrint(ANSI_YELLOW, "Joined the game at " + response.content());
+                gameLobby = (String) response.content();
+            }
             case "GAME_GUESS" -> {
                 switch ((int) response.content()) {
-                    case -1 -> coloredPrint(ANSI_YELLOW, "Your guess is lesser then the answer");
+                    case -1 -> coloredPrint(ANSI_YELLOW, "Guess bigger!");
                     case 0 -> coloredPrint(ANSI_YELLOW, "You have guessed the number!");
-                    case 1 -> coloredPrint(ANSI_YELLOW, "Your guess is greater then the answer");
+                    case 1 -> coloredPrint(ANSI_YELLOW, "Guess lesser!");
                 }
             }
             case "SEND_FILE" -> {
@@ -309,7 +312,7 @@ public class Client {
             InputStream input = senderSocket.getInputStream();
             byte[] senderData = createByteArray('R', sessionId);
             new ByteArrayInputStream(senderData).transferTo(output);
-//            new ByteArrayInputStream(input.readAllBytes()); // Like this?
+//            new ByteArrayInputStream(input.readAllBytes()); // TODO: Like this?
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -404,11 +407,23 @@ public class Client {
                     coloredPrint(ANSI_YELLOW, getPropertyFromJson(json, "username") + " has guessed the number!");
             case "GAME_END" -> {
                 Leaderboard leaderboard = mapper.readValue(json, Leaderboard.class);
-                coloredPrint(ANSI_YELLOW, "Game in lobby " + leaderboard.lobby() + " has ended! Here is the scoreboard:");
-                int index = 1;
-                for (Entry<String, Long> score : leaderboard.leaderboard().entrySet()) {
+                coloredPrint(ANSI_YELLOW, "Game in lobby " + leaderboard.lobby() + " has ended! \n --- Scoreboard ---");
+                int index = 2;
+
+                List<Entry<String, Long>> scores = new ArrayList<>(leaderboard.leaderboard().entrySet());
+                // sort the scores to get the quickest time on the first place
+                scores.sort(Entry.comparingByValue());
+
+                for (Entry<String, Long> score : scores) {
+                    if (scores.indexOf(score) == 0)
+                        rainbowPrint(index + ".) " + scores.get(0).getKey() + ": " + scores.get(0).getValue() + "ms");
                     coloredPrint(ANSI_YELLOW, index + ".) " + score.getKey() + ": " + score.getValue() + "ms");
+                    index++;
                 }
+
+                System.out.println("------------------");
+
+                gameLobby = "";
             }
             case "TRANSFER_REQUEST" -> {
                 FileTransferRequest ftm = mapper.readValue(json, FileTransferRequest.class);
