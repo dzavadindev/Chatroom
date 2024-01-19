@@ -30,7 +30,7 @@ public class GuessingGame implements Runnable {
 
     private final int answer;
     private final String lobbyName;
-    private boolean collectionPeriod = true, guessingPeriod = false;
+    private boolean collectionPeriod = true, guessingPeriod = false; // todo: change to enum
     private int playersGuessed = 0;
 
 
@@ -108,7 +108,6 @@ public class GuessingGame implements Runnable {
                 }
 
             } else player.sendResponse("GAME_GUESS", 851, "ERROR");
-            // todo add 851 as code for guessing during collection period
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
@@ -133,6 +132,7 @@ public class GuessingGame implements Runnable {
     class CollectionPeriod implements Runnable {
         @Override
         public void run() {
+            // todo: if creator is the only one in game, close
             System.out.println("Started the game at '" + lobbyName + "', answer is " + answer);
             System.out.println("Players: " + players);
             for (Connection player : players) {

@@ -4,19 +4,19 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-public class FileTransferThread implements Runnable {
+public class FileTransfer implements Runnable {
 
     // -----------------------------------   CONSTANTS   ------------------------------------------------
 
     private int FILE_TRANSFER_PORT = 1338;
-    private final int UUID_LENGTH = 16;
     private Map<UUID, Session> sessions;
 
-    public FileTransferThread(int port) {
+    public FileTransfer(int port) {
         this.FILE_TRANSFER_PORT = port;
         this.sessions = new HashMap<>();
     }
@@ -41,6 +41,7 @@ public class FileTransferThread implements Runnable {
             try {
                 this.out = clientSocket.getOutputStream();
                 this.in = clientSocket.getInputStream();
+                System.out.println("New file transfer actor");
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -48,15 +49,22 @@ public class FileTransferThread implements Runnable {
 
         @Override
         public void run() {
-            // [1byte-S][16byte-Session UUID][?bytes-File Bytes]
-//            try {
-//            } catch (IOException e) {
-//                throw new RuntimeException(e);
-//            }
+            // [1byte-S][36byte-Session UUID][?bytes-File Bytes]
+
+//            in.readNBytes(1) -> Save as String, will be role
+//            in.readNBytes(36) -> Save as String, will be sessionID
+            try {
+                String role = new String(in.readNBytes(1), StandardCharsets.UTF_8);
+                UUID sessionId = UUID.nameUUIDFromBytes(in.readNBytes(36));
+                System.out.println("Actor role: " + role);
+                System.out.println("Actors session: " + sessionId);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 
-    // -----------------------------------   MESSAGE HANDLING   ------------------------------------------------
+// -----------------------------------   MESSAGE HANDLING   ------------------------------------------------
 
 
     public static UUID convertBytesToUUID(byte[] bytes) {
@@ -66,22 +74,16 @@ public class FileTransferThread implements Runnable {
         return new UUID(high, low);
     }
 
-    // -----------------------------------   MESSAGE HANDLING   ------------------------------------------------
+// -----------------------------------   MESSAGE HANDLING   ------------------------------------------------
 
 
     private static class Session {
-        private UUID sessionId;
         private FileTransferActor receiver;
         private FileTransferActor sender;
 
-        public Session(UUID sessionId, FileTransferActor receiver, FileTransferActor sender) {
-            this.sessionId = sessionId;
+        public Session(FileTransferActor receiver, FileTransferActor sender) {
             this.receiver = receiver;
             this.sender = sender;
-        }
-
-        public void setSessionId(UUID sessionId) {
-            this.sessionId = sessionId;
         }
 
         public void setReceiver(FileTransferActor receiver) {

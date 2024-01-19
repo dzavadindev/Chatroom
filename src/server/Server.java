@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import exceptions.UserNotFoundException;
-import features.FileTransferThread;
+import features.FileTransfer;
 import features.GuessingGame;
 import messages.*;
 
@@ -50,7 +50,9 @@ public class Server {
 
     private void startServer(int port) {
         System.out.println("Server now running on port " + port);
-        new Thread(new FileTransferThread(FILE_TRANSFER_PORT)).start();
+        // File transferring server section, on different port
+        new Thread(new FileTransfer(FILE_TRANSFER_PORT)).start();
+        // Handle connections for protocol messages
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             while (true) {
                 Socket socket = serverSocket.accept();
@@ -70,7 +72,7 @@ public class Server {
         private final BufferedReader in;
         private boolean alive = true, hasLoggedIn = false, inGame = false;
         public String username = "";
-        private final List<FileTransferRequest> pendingFTRequests = new LinkedList<>();
+        private final List<FileTransferRequest> pendingFTRequests = new LinkedList<>(); // todo: maybe change to a map UUID:FileTransferRequest?
 
         public Connection(Socket allocatedSocket) throws IOException {
             this.allocatedSocket = allocatedSocket;
@@ -204,8 +206,6 @@ public class Server {
             sendResponse("SEND_FILE", 800, response, ftr.sender());
             sendResponse("TRANSFER_RESPONSE", 800, "OK");
             pendingFTRequests.remove(ftr);
-
-            // todo: initiate the file transfer (in Client when receiving "true" in contents)
         }
 
         private void handleGameLaunch(String json) throws JsonProcessingException {
@@ -416,10 +416,3 @@ public class Server {
         }
     }
 }
-
-// File Transfer is a separate thread.
-// Open a new port and create a new server socket on it, PURELY to handle file transfer.
-// When creating a connection to the FileTransfer socket, create tags (mark in bytes S or R).
-// To know who is the sender and receiver, use unique UUID for the transfer session (created in sender).
-// To understand the flow, follow the diagram in the slides of w5 (Michel's diagram)
-// Calculating checksums - hashing alogs: MD5, SHA1

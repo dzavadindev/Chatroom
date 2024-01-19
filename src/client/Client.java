@@ -28,12 +28,12 @@ public class Client {
     private ObjectMapper mapper;
     // --------------- features ---------------
     private String gameLobby = "";
-    private UUID latestFileTransferSessionId;
+    private FileTransferRequest latestFTR;
     private File latestSelectedFile;
     // --------------- config ---------------
-    private final static String FILE_TRANSFER_DIRECTORY = "src/exchange/";
+    private final static String FILE_TRANSFER_DIRECTORY = "resources/";
     private final static String SERVER_ADDRESS = "127.0.0.1";
-    private final static int SERVER_PORT = 1337, FILE_TRNSFER_PORT = 1338;
+    private final static int SERVER_PORT = 1337, FILE_TRANSFER_PORT = 1338;
 
     public Client(String address, int port) {
         try {
@@ -193,6 +193,7 @@ public class Client {
         String[] params = content.split(" ", 2);
         String filename = params[0];
         String receiver = params[1];
+        // fixme: if provided with wrong number of arguments (2 instead of 1) fucking dies
         latestSelectedFile = new File(FILE_TRANSFER_DIRECTORY + filename);
         if (!latestSelectedFile.exists()) {
             coloredPrint(ANSI_MAGENTA, "FILE WITH NAME " + filename + " DOES NOT EXIST");
@@ -212,12 +213,12 @@ public class Client {
     }
 
     private void accept() throws JsonProcessingException {
-        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(true, "this.username", latestFileTransferSessionId)));
-        initFileTransfer(latestFileTransferSessionId);
+        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(true, "this.username", latestFTR.sessionId())));
+        initFileTransfer(latestFTR.sessionId());
     }
 
     private void reject() throws JsonProcessingException {
-        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(false, "this.username", latestFileTransferSessionId)));
+        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(false, "this.username", latestFTR.sessionId())));
     }
 
     private void handleResponseMessages(Response<?> response) {
@@ -234,7 +235,6 @@ public class Client {
         try {
             if (response.status() == 711) {
                 System.out.println(response);
-                //todo: I receive no this end not a record, but a LinkedHashMap,which I believe is a parent of the record class
                 NotFound notFound = mapper.readValue((String) response.content(), NotFound.class);
                 message = String.format(message, notFound.resource(), notFound.content());
                 coloredPrint(ANSI_RED, message);
@@ -297,22 +297,31 @@ public class Client {
 
     // -----------------------------------   UTILS   ------------------------------------------------
     private void initFileTransfer(UUID sessionId, File file) {
-        try (Socket receiverSocket = new Socket(SERVER_ADDRESS, FILE_TRNSFER_PORT)) {
-            OutputStream output = receiverSocket.getOutputStream();
-            byte[] receiverData = createByteArray('S', sessionId, file);
-            new ByteArrayInputStream(receiverData).transferTo(output);
+        try (Socket senderSocket = new Socket(SERVER_ADDRESS, FILE_TRANSFER_PORT)) {
+            OutputStream output = senderSocket.getOutputStream();
+            byte[] senderData = createByteArray('S', sessionId);
+            output.write(senderData);
+            try (FileInputStream fs = new FileInputStream(file)) {
+                fs.transferTo(output);
+            }
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
 
     private void initFileTransfer(UUID sessionId) {
-        try (Socket senderSocket = new Socket(SERVER_ADDRESS, FILE_TRNSFER_PORT)) {
-            OutputStream output = senderSocket.getOutputStream();
-            InputStream input = senderSocket.getInputStream();
-            byte[] senderData = createByteArray('R', sessionId);
-            new ByteArrayInputStream(senderData).transferTo(output);
-//            new ByteArrayInputStream(input.readAllBytes()); // TODO: Like this?
+        try (Socket receiverSocket = new Socket(SERVER_ADDRESS, FILE_TRANSFER_PORT)) {
+            OutputStream output = receiverSocket.getOutputStream();
+            InputStream input = receiverSocket.getInputStream();
+            byte[] receiverData = createByteArray('R', sessionId);
+            output.write(receiverData);
+            // create new file
+            File file = new File(FILE_TRANSFER_DIRECTORY + latestFTR.filename());
+            // input.transferTo that file
+            input.transferTo(new FileOutputStream(file)); // this should autoclose after reading everything, right?
+            // close file
+            // ^^^^^^^^^^ so i dont need this
+            // todo: verify checksum
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -325,39 +334,19 @@ public class Client {
         return bb.array();
     }
 
-    private byte[] createByteArray(char letter, UUID uuid, File file) throws IOException {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        outputStream.write(createByteArray(letter, uuid));
-
-        // Write File Contents
-        FileInputStream fileInputStream = new FileInputStream(file);
-        byte[] fileBuffer = new byte[1024];
-        int bytesRead;
-        while ((bytesRead = fileInputStream.read(fileBuffer)) != -1) {
-            outputStream.write(fileBuffer, 0, bytesRead);
-        }
-        fileInputStream.close();
-
-        return outputStream.toByteArray();
-    }
-
     private byte[] createByteArray(char letter, UUID uuid) throws IOException {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-
         // Write Letter
         outputStream.write((byte) letter);
-
         // Write UUID
         byte[] uuidBytes = convertUUIDToBytes(uuid);
         outputStream.write(uuidBytes);
-
         return outputStream.toByteArray();
     }
 
     // --------------------------   RECEIVED MESSAGE HANDLER   ---------------------------------------
 
     private void handleServerMessage(String message) throws IOException {
-//        System.out.println(message);
         String[] messageParts = message.split(" ", 2);
         String type = messageParts[0];
         String json = messageParts.length == 2 ? messageParts[1] : "";
@@ -426,9 +415,9 @@ public class Client {
                 gameLobby = "";
             }
             case "TRANSFER_REQUEST" -> {
-                FileTransferRequest ftm = mapper.readValue(json, FileTransferRequest.class);
-                coloredPrint(ANSI_GREEN, "You are receiving an inquiry for file exchange from " + ftm.sender() + " (" + ftm.filename() + ")");
-                latestFileTransferSessionId = ftm.sessionId();
+                FileTransferRequest ftr = mapper.readValue(json, FileTransferRequest.class);
+                coloredPrint(ANSI_GREEN, "You are receiving an inquiry for file exchange from " + ftr.sender() + " (" + ftr.filename() + ")");
+                latestFTR = ftr;
             }
             case "PARSE_ERROR" -> coloredPrint(ANSI_MAGENTA, "Parse error occurred processing your message");
             default -> coloredPrint(ANSI_MAGENTA, "Unknown message type or command from the server");
