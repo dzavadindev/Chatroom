@@ -32,6 +32,7 @@ public class Client {
     private File latestSelectedFile;
     // --------------- config ---------------
     private final static String FILE_TRANSFER_DIRECTORY = "resources/";
+    private final static String EXTENSION_SPLITTING_REGEXP = "\\.(?=[^.]*$)";
     private final static String SERVER_ADDRESS = "127.0.0.1";
     private final static int SERVER_PORT = 1337, FILE_TRANSFER_PORT = 1338;
 
@@ -140,9 +141,11 @@ public class Client {
         System.out.println("### !guess <guess> - enter your guess for the number guessing game if you're in a game");
         System.out.println("### !file <filename> <receiver> - send a file to the specified user");
         System.out.println("###### NOTE:");
-        System.out.println("###### The file you're planning to send must be in the \"exchange\" directory.");
+        System.out.printf("###### The file you're planning to send must be in the \"%s\" directory.\n", FILE_TRANSFER_DIRECTORY);
         System.out.println("###### When specifying the file for transmission, include only the name and extension");
         System.out.println("### !accept/reject - accept or decline the latest file transfer offered");
+        System.out.println("### !secure <username> <message> - send an encrypted message to another user");
+        coloredPrint(ANSI_GRAY, "Planning to move that functionality to private message");
     }
 
     private void create(String lobby) {
@@ -214,6 +217,7 @@ public class Client {
 
     private void accept() throws JsonProcessingException {
         out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(true, "this.username", latestFTR.sessionId())));
+        System.out.println("Initiating file transfer receiver side");
         initFileTransfer(latestFTR.sessionId());
     }
 
@@ -284,6 +288,7 @@ public class Client {
 
                     if (ftr.status()) {
                         coloredPrint(ANSI_GREEN, ftr.sender() + " has ACCEPTED your file transfer inquiry! Preparing transmission...");
+                        System.out.println("Initiating file transfer senders side");
                         initFileTransfer(ftr.sessionId(), latestSelectedFile);
                     } else coloredPrint(ANSI_GREEN, ftr.sender() + " has REJECTED your file transfer inquiry.");
                 } catch (JsonProcessingException e) {
@@ -291,7 +296,7 @@ public class Client {
                 }
             }
             default ->
-                    coloredPrint(ANSI_GREY, "OK status received. Unknown destination of the response: " + response.to());
+                    coloredPrint(ANSI_GRAY, "OK status received. Unknown destination of the response: " + response.to());
         }
     }
 
@@ -315,12 +320,14 @@ public class Client {
             InputStream input = receiverSocket.getInputStream();
             byte[] receiverData = createByteArray('R', sessionId);
             output.write(receiverData);
-            // create new file
-            File file = new File(FILE_TRANSFER_DIRECTORY + latestFTR.filename());
-            // input.transferTo that file
-            input.transferTo(new FileOutputStream(file)); // this should autoclose after reading everything, right?
-            // close file
-            // ^^^^^^^^^^ so i dont need this
+            String[] filename = latestFTR.filename().split(EXTENSION_SPLITTING_REGEXP);
+            System.out.println(latestFTR.filename());
+            System.out.println(Arrays.toString(filename));
+            File file = new File(FILE_TRANSFER_DIRECTORY + filename[0] + "_new." + filename[1]);
+            try (FileOutputStream fo = new FileOutputStream(file)) {
+                input.transferTo(fo); // this should auto-close after reading everything, right?
+            }
+            System.out.println("Finished the file transfer!");
             // todo: verify checksum
         } catch (IOException e) {
             throw new RuntimeException(e);

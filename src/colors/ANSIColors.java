@@ -12,7 +12,7 @@ public abstract class ANSIColors {
     public static final String ANSI_BLUE = "\u001B[34m";
     public static final String ANSI_MAGENTA = "\u001B[35m";
     public static final String ANSI_CYAN = "\u001B[36m";
-    public static final String ANSI_GREY = "\\e[38;5;248m";
+    public static final String ANSI_GRAY = "\\e[38;5;248m";
 
     private static final List<String> allColors = new LinkedList<>(List.of(ANSI_RED, ANSI_GREEN, ANSI_YELLOW, ANSI_BLUE, ANSI_MAGENTA, ANSI_CYAN));
 

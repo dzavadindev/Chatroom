@@ -14,7 +14,7 @@ public class FileTransfer implements Runnable {
     // -----------------------------------   CONSTANTS   ------------------------------------------------
 
     private int FILE_TRANSFER_PORT = 1338;
-    private Map<UUID, Session> sessions;
+    private final Map<UUID, Session> sessions;
 
     public FileTransfer(int port) {
         this.FILE_TRANSFER_PORT = port;
@@ -33,7 +33,7 @@ public class FileTransfer implements Runnable {
         }
     }
 
-    private static class FileTransferActor implements Runnable {
+    private class FileTransferActor implements Runnable {
         private final OutputStream out;
         private final InputStream in;
 
@@ -49,41 +49,46 @@ public class FileTransfer implements Runnable {
 
         @Override
         public void run() {
-            // [1byte-S][36byte-Session UUID][?bytes-File Bytes]
-
-//            in.readNBytes(1) -> Save as String, will be role
-//            in.readNBytes(36) -> Save as String, will be sessionID
             try {
                 String role = new String(in.readNBytes(1), StandardCharsets.UTF_8);
                 UUID sessionId = UUID.nameUUIDFromBytes(in.readNBytes(36));
-                System.out.println("Actor role: " + role);
-                System.out.println("Actors session: " + sessionId);
+
+                Session session = sessions.get(sessionId) != null ? sessions.get(sessionId) : new Session();
+                sessions.putIfAbsent(sessionId, session);
+
+                switch (role) {
+                    case "S" -> {
+                        System.out.println("Setting sender");
+                        session.setSender(this);
+                    }
+                    case "R" -> {
+                        System.out.println("Setting receiver");
+                        session.setReceiver(this);
+                    }
+                    default -> System.out.println("Unknown role: '" + role + "'"); // todo: what do I do?
+                }
+
+                if (session.receiver != null && session.sender != null) {
+                    System.out.println("Starting transfer");
+                    session.sender.in.transferTo(session.receiver.out);
+                }
+
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
         }
     }
 
-// -----------------------------------   MESSAGE HANDLING   ------------------------------------------------
-
-
-    public static UUID convertBytesToUUID(byte[] bytes) {
-        ByteBuffer byteBuffer = ByteBuffer.wrap(bytes);
-        long high = byteBuffer.getLong();
-        long low = byteBuffer.getLong();
-        return new UUID(high, low);
-    }
 
 // -----------------------------------   MESSAGE HANDLING   ------------------------------------------------
-
 
     private static class Session {
         private FileTransferActor receiver;
         private FileTransferActor sender;
 
-        public Session(FileTransferActor receiver, FileTransferActor sender) {
-            this.receiver = receiver;
-            this.sender = sender;
+        public Session() {
+            this.receiver = null;
+            this.sender = null;
         }
 
         public void setReceiver(FileTransferActor receiver) {
