@@ -33,7 +33,7 @@ public class Client {
     // --------------- config ---------------
     private final static String FILE_TRANSFER_DIRECTORY = "resources/";
     private final static String EXTENSION_SPLITTING_REGEXP = "\\.(?=[^.]*$)";
-    private final static String SERVER_ADDRESS = "127.0.0.1";
+    private final static String SERVER_ADDRESS = "127.0.0.1"; //"192.168.178.151"
     private final static int SERVER_PORT = 1337, FILE_TRANSFER_PORT = 1338;
 
     public Client(String address, int port) {
@@ -95,7 +95,11 @@ public class Client {
                     handleServerMessage(serverMessage);
                 }
             } catch (SocketException se) {
-                System.err.println("Connection closed, exiting...");
+                System.err.println("| ------------------------------------- |");
+                System.err.println("| Connection with the server was closed |");
+                System.err.println("| due to an internal error or shutdown  |");
+                System.err.println("| Exiting...                            |");
+                System.err.println("| ------------------------------------- |");
                 System.exit(0);
             } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -163,14 +167,21 @@ public class Client {
     }
 
     private void leave() {
-        out.println("LEAVE");
-        System.out.println("Bye bye!");
+        try {
+            out.println("LEAVE");
+            in.close();
+            out.close();
+            socket.close();
+            System.out.println("Bye bye!");
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private void direct(String data) throws JsonProcessingException {
         String[] tuple = data.split(" ", 2);
         if (tuple.length < 2 || tuple.length > 3) {
-            System.err.println("Provide both username and the message");
+            coloredPrint(ANSI_RED, "Provide both username and the message");
             return;
         }
         String receiver = tuple[0];
@@ -194,6 +205,10 @@ public class Client {
 
     private void file(String content) {
         String[] params = content.split(" ", 2);
+        if (params.length != 2) {
+            coloredPrint(ANSI_RED, "Provide both the file name and the receiving user");
+            return;
+        }
         String filename = params[0];
         String receiver = params[1];
         // fixme: if provided with wrong number of arguments (2 instead of 1) fucking dies
@@ -209,7 +224,9 @@ public class Client {
             byte[] digest = md.digest();
             checksum = HexFormat.of().formatHex(digest).toLowerCase();
             System.out.println(checksum);
-            out.println("SEND_FILE " + mapper.writeValueAsString(new FileTransferRequest(filename, receiver, "", UUID.randomUUID())));
+            out.println("SEND_FILE " + mapper.writeValueAsString(
+                    new FileTransferRequest(filename, receiver, "", UUID.randomUUID()))
+            );
         } catch (NoSuchAlgorithmException | IOException e) {
             throw new RuntimeException(e);
         }
@@ -309,7 +326,7 @@ public class Client {
             try (FileInputStream fs = new FileInputStream(file)) {
                 fs.transferTo(output);
             }
-        } catch (IOException e) {
+        } catch (IOException e) { // todo: trim all username everywhere
             throw new RuntimeException(e);
         }
     }
@@ -319,7 +336,10 @@ public class Client {
             OutputStream output = receiverSocket.getOutputStream();
             InputStream input = receiverSocket.getInputStream();
             byte[] receiverData = createByteArray('R', sessionId);
+            System.out.println("Byte array " + Arrays.toString(receiverData));
             output.write(receiverData);
+            output.flush();
+            output.close();
             String[] filename = latestFTR.filename().split(EXTENSION_SPLITTING_REGEXP);
             System.out.println(latestFTR.filename());
             System.out.println(Arrays.toString(filename));
@@ -412,14 +432,16 @@ public class Client {
 
                 for (Entry<String, Long> score : scores) {
                     if (scores.indexOf(score) == 0)
-                        rainbowPrint(index + ".) " + scores.get(0).getKey() + ": " + scores.get(0).getValue() + "ms");
+                        rainbowPrint(index + ".) " + scores.getFirst().getKey() + ": " + scores.getFirst().getValue() + "ms");
                     coloredPrint(ANSI_YELLOW, index + ".) " + score.getKey() + ": " + score.getValue() + "ms");
                     index++;
                 }
-
                 System.out.println("------------------");
-
                 gameLobby = "";
+            }
+            case "GAME_FAIL" -> {
+                String lobby = getPropertyFromJson(json, "lobby");
+                coloredPrint(ANSI_MAGENTA, "The game at " + lobby + " had has ended, due to lack of players");
             }
             case "TRANSFER_REQUEST" -> {
                 FileTransferRequest ftr = mapper.readValue(json, FileTransferRequest.class);

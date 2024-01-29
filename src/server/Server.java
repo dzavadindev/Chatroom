@@ -43,7 +43,8 @@ public class Server {
     }
 
     public static void main(String[] args) {
-        new Server(1337);
+        Server server = new Server(1337);
+        Runtime.getRuntime().addShutdownHook(new Thread(new ShutdownHandler(server)));
     }
 
     // -----------------------------------   CONNECTION HANDLING   ------------------------------------------------
@@ -413,6 +414,27 @@ public class Server {
         @Override
         public String toString() {
             return "Connection{" + "username='" + username + '\'' + '}';
+        }
+    }
+
+    // -----------------------------------   SHUTDOWN HANDLER   ------------------------------------------------
+    private static class ShutdownHandler implements Runnable {
+
+        Server server;
+
+        public ShutdownHandler(Server server) {
+            this.server = server;
+        }
+
+        @Override
+        public void run() {
+            for (Connection user : server.users) {
+                try {
+                    user.disconnect(702);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
         }
     }
 }

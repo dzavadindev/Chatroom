@@ -18,6 +18,8 @@ public class GuessingGame implements Runnable {
     private final Set<Connection> players = new HashSet<>();
     private final Map<String, Long> leaderboard = new HashMap<>();
     private long startTime;
+    private final ObjectMapper mapper = new ObjectMapper();
+
 
     // -----------------------------------   CONSTANTS   ------------------------------------------------
 
@@ -30,7 +32,7 @@ public class GuessingGame implements Runnable {
 
     private final int answer;
     private final String lobbyName;
-    private boolean collectionPeriod = true, guessingPeriod = false; // todo: change to enum
+    private GameState gameState = GameState.COLLECTION;
     private int playersGuessed = 0;
 
 
@@ -56,18 +58,18 @@ public class GuessingGame implements Runnable {
         // the game itself is longer, and because both tasks are being scheduled now
         // the game timer will be equal the collection period + the game time itself
         int GAME_TIMER_SUMMED = COLLECTION_PERIOD + GAME_TIMER;
-        executor.schedule(new EndGame(), GAME_TIMER_SUMMED, TimeUnit.SECONDS);
+        executor.schedule(new EndGame(true), GAME_TIMER_SUMMED, TimeUnit.SECONDS);
     }
 
     public boolean handleGameJoin(Connection player) {
         try {
-            if (collectionPeriod) {
+            if (gameState == GameState.COLLECTION) {
                 if (isInGame(player)) {
                     player.sendResponse("GAME_JOIN", 856, lobbyName);
                     return false;
                 }
                 players.add(player);
-//              notifyEveryone(); // todo?
+//              notifyEveryone(); // todo: should other players be informed of a new one joining?
                 player.sendResponse("GAME_JOIN", 800, lobbyName);
                 return true;
             } else {
@@ -81,7 +83,7 @@ public class GuessingGame implements Runnable {
 
     public void handleGameGuess(Connection player, int guess) {
         try {
-            if (guessingPeriod) {
+            if (gameState == GameState.ELAPSED) {
                 if (!isInGame(player)) {
                     player.sendResponse("GAME_GUESS", 852, lobbyName);
                     return;
@@ -104,7 +106,7 @@ public class GuessingGame implements Runnable {
                     leaderboard.put(player.username, playerGuessTimeMs);
                     playersGuessed++;
                     if (playersGuessed == players.size())
-                        new EndGame().run();
+                        new EndGame(true).run();
                 }
 
             } else player.sendResponse("GAME_GUESS", 851, "ERROR");
@@ -133,30 +135,47 @@ public class GuessingGame implements Runnable {
         @Override
         public void run() {
             // todo: if creator is the only one in game, close
+            if (players.size() == 1) {
+                notifyEveryone("GAME_FAIL " + wrapInJson("lobby", lobbyName));
+                new EndGame(false).run();
+            }
             System.out.println("Started the game at '" + lobbyName + "', answer is " + answer);
             System.out.println("Players: " + players);
             for (Connection player : players) {
                 leaderboard.put(player.username, (long) GAME_TIMER);
                 player.sendMessageToClient("GAME_START " + wrapInJson("lobby", lobbyName));
             }
-            collectionPeriod = false;
-            guessingPeriod = true;
+            gameState = GameState.ELAPSED;
             startTime = System.nanoTime();
         }
     }
 
     class EndGame implements Runnable {
+
+        boolean showLeaderboard;
+
+        public EndGame(boolean showLeaderboard) {
+            this.showLeaderboard = showLeaderboard;
+        }
+
         @Override
         public void run() {
             try {
                 System.out.println("Ended the game at lobby '" + lobbyName + "'");
-                ObjectMapper mapper = new ObjectMapper();
+                if (showLeaderboard) {
+                    notifyEveryone("GAME_END " + mapper.writeValueAsString(new Leaderboard(lobbyName, leaderboard)));
+                }
                 players.forEach(Connection::leaveGame);
-                notifyEveryone("GAME_END " + mapper.writeValueAsString(new Leaderboard(lobbyName, leaderboard)));
                 Thread.currentThread().interrupt(); // todo: does this interrupt the main, or the task thread?
             } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
             }
         }
     }
+
+    private enum GameState {
+        COLLECTION,
+        ELAPSED
+    }
+
 }

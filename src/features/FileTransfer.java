@@ -3,7 +3,6 @@ package features;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
@@ -56,6 +55,9 @@ public class FileTransfer implements Runnable {
                 Session session = sessions.get(sessionId) != null ? sessions.get(sessionId) : new Session();
                 sessions.putIfAbsent(sessionId, session);
 
+                System.out.println("Role " + role);
+                System.out.println("Session " + sessionId);
+
                 switch (role) {
                     case "S" -> {
                         System.out.println("Setting sender");
@@ -67,6 +69,8 @@ public class FileTransfer implements Runnable {
                     }
                     default -> System.out.println("Unknown role: '" + role + "'"); // todo: what do I do?
                 }
+
+                // todo:keep sockets alive
 
                 if (session.receiver != null && session.sender != null) {
                     System.out.println("Starting transfer");

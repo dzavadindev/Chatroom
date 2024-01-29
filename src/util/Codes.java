@@ -31,6 +31,7 @@ public class Codes {
             // 700-710 reserved for disconnection reasons,
             entry(700, "Pong timeout"),
             entry(701, "Unterminated message"),
+            entry(702, "Server was shut down"),
             // 710-720 reserved for general codes
             entry(710, "You are not logged in"),
             entry(711, "%s %s was not found")
