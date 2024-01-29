@@ -153,13 +153,13 @@ public class Client {
     }
 
     private void create(String lobby) {
-        out.println("GAME_LAUNCH " + wrapInJson("lobby", lobby));
-        gameLobby = lobby;
+        out.println("GAME_LAUNCH " + wrapInJson("lobby", lobby.trim()));
+        gameLobby = lobby.trim();
     }
 
     private void join(String lobby) {
-        out.println("GAME_JOIN " + wrapInJson("lobby", lobby));
-        gameLobby = lobby;
+        out.println("GAME_JOIN " + wrapInJson("lobby", lobby.trim()));
+        gameLobby = lobby.trim();
     }
 
     private void guess(String guess) throws JsonProcessingException {
@@ -184,8 +184,8 @@ public class Client {
             coloredPrint(ANSI_RED, "Provide both username and the message");
             return;
         }
-        String receiver = tuple[0];
-        String message = tuple[1];
+        String receiver = tuple[0].trim();
+        String message = tuple[1].trim();
         out.println("PRIVATE " + mapper.writeValueAsString(new BroadcastMessage(receiver, message)));
     }
 
@@ -195,12 +195,12 @@ public class Client {
 
     private void send(String message) throws JsonProcessingException {
         if (!message.isBlank()) {
-            out.println("BROADCAST " + mapper.writeValueAsString(new BroadcastMessage("", message)));
+            out.println("BROADCAST " + mapper.writeValueAsString(new BroadcastMessage("", message.trim())));
         } else System.out.println("Invalid message format");
     }
 
     private void login(String username) {
-        out.println("LOGIN " + wrapInJson("username", username));
+        out.println("LOGIN " + wrapInJson("username", username.trim()));
     }
 
     private void file(String content) {
@@ -209,9 +209,8 @@ public class Client {
             coloredPrint(ANSI_RED, "Provide both the file name and the receiving user");
             return;
         }
-        String filename = params[0];
-        String receiver = params[1];
-        // fixme: if provided with wrong number of arguments (2 instead of 1) fucking dies
+        String filename = params[0].trim();
+        String receiver = params[1].trim();
         latestSelectedFile = new File(FILE_TRANSFER_DIRECTORY + filename);
         if (!latestSelectedFile.exists()) {
             coloredPrint(ANSI_MAGENTA, "FILE WITH NAME " + filename + " DOES NOT EXIST");
@@ -326,7 +325,7 @@ public class Client {
             try (FileInputStream fs = new FileInputStream(file)) {
                 fs.transferTo(output);
             }
-        } catch (IOException e) { // todo: trim all username everywhere
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
@@ -338,20 +337,19 @@ public class Client {
             byte[] receiverData = createByteArray('R', sessionId);
             System.out.println("Byte array " + Arrays.toString(receiverData));
             output.write(receiverData);
-            output.flush();
-            output.close();
             String[] filename = latestFTR.filename().split(EXTENSION_SPLITTING_REGEXP);
             System.out.println(latestFTR.filename());
             System.out.println(Arrays.toString(filename));
             File file = new File(FILE_TRANSFER_DIRECTORY + filename[0] + "_new." + filename[1]);
+            // socket is already closed at this point, so is the stream
             try (FileOutputStream fo = new FileOutputStream(file)) {
-                input.transferTo(fo); // this should auto-close after reading everything, right?
+                input.transferTo(fo); // thus this input stream proves unusable and throws a Socket Closed exception
             }
-            System.out.println("Finished the file transfer!");
-            // todo: verify checksum
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+        System.out.println("Finished the file transfer!");
+        // todo: verify checksum
     }
 
     public static byte[] convertUUIDToBytes(UUID uuid) {
@@ -432,7 +430,7 @@ public class Client {
 
                 for (Entry<String, Long> score : scores) {
                     if (scores.indexOf(score) == 0)
-                        rainbowPrint(index + ".) " + scores.getFirst().getKey() + ": " + scores.getFirst().getValue() + "ms");
+                        rainbowPrint(index + ".) " + scores.get(0).getKey() + ": " + scores.get(0).getValue() + "ms");
                     coloredPrint(ANSI_YELLOW, index + ".) " + score.getKey() + ": " + score.getValue() + "ms");
                     index++;
                 }

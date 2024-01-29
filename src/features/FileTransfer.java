@@ -4,9 +4,9 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class FileTransfer implements Runnable {
 
@@ -17,7 +17,7 @@ public class FileTransfer implements Runnable {
 
     public FileTransfer(int port) {
         this.FILE_TRANSFER_PORT = port;
-        this.sessions = new HashMap<>();
+        this.sessions = new ConcurrentHashMap<>();
     }
 
     @Override
@@ -51,6 +51,8 @@ public class FileTransfer implements Runnable {
             try {
                 String role = new String(in.readNBytes(1), StandardCharsets.UTF_8);
                 UUID sessionId = UUID.nameUUIDFromBytes(in.readNBytes(36));
+                // I think it gets stuck here? Thats what the debugger seems to show
+                // Also, from what I see only one thread of the actor is present, meaning it might have been interrupted
 
                 Session session = sessions.get(sessionId) != null ? sessions.get(sessionId) : new Session();
                 sessions.putIfAbsent(sessionId, session);
@@ -67,10 +69,8 @@ public class FileTransfer implements Runnable {
                         System.out.println("Setting receiver");
                         session.setReceiver(this);
                     }
-                    default -> System.out.println("Unknown role: '" + role + "'"); // todo: what do I do?
+                    default -> System.out.println("Unknown role: '" + role + "'");
                 }
-
-                // todo:keep sockets alive
 
                 if (session.receiver != null && session.sender != null) {
                     System.out.println("Starting transfer");
