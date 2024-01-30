@@ -145,6 +145,11 @@ public class Server {
                     case "LIST" -> handleList();
                     case "SEND_FILE" -> handleTransferRequest(json);
                     case "TRANSFER_RESPONSE" -> handleTransferResponse(json);
+                    case "PUBLIC_KEY_REQ" -> handlePublicKeyReq(json);
+                    case "PUBLIC_KEY_RES" -> handlePublicKeyRes(json);
+                    case "SESSION_KEY" -> handleSessionKeyReq(json);
+                    case "SECURE_READY" -> handleSecureReady(json);
+                    case "SECURE" -> handleSecure(json);
                     case "LEAVE" -> disconnect(700);
                     default -> out.println("UNKNOWN_ACTION");
                 }
@@ -273,12 +278,55 @@ public class Server {
 
             try {
                 Connection receiver = findUserByUsername(receiverName);
-                receiver.out.println("PRIVATE " + mapper.writeValueAsString(new BroadcastMessage(this.username, message)));
+                receiver.out.println("PRIVATE " + mapper.writeValueAsString(new TextMessage(this.username, message)));
             } catch (UserNotFoundException e) {
                 String notFoundJson = mapper.writeValueAsString(new NotFound("receiver", receiverName));
                 sendResponse("PRIVATE", 711, notFoundJson);
             }
         }
+
+        private void handleSecure(String json) throws JsonProcessingException {
+//            if (isNotLoggedIn()) return;
+//
+//            String message = getPropertyFromJson(json, "message");
+//            String receiverName = getPropertyFromJson(json, "username");
+//
+//            if (this.username.equals(receiverName)) {
+//                sendResponse("SECURE", 822, "ERROR");
+//                return;
+//            }
+        }
+
+        private void handlePublicKeyReq(String json) throws JsonProcessingException {
+            KeyExchange ke = mapper.readValue(json, KeyExchange.class);
+            try {
+                findUserByUsername(ke.username()).out.println("PUBLIC_KEY_REQ "
+                        + mapper.writeValueAsString(new KeyExchange(this.username, ke.key())));
+            } catch (UserNotFoundException e) {
+                String notFoundJson = mapper.writeValueAsString(new NotFound("user", ke.username()));
+                sendResponse("PUBLIC_KEY_REQ", 711, notFoundJson);
+            }
+        }
+
+        private void handlePublicKeyRes(String json) throws JsonProcessingException {
+            KeyExchange ke = mapper.readValue(json, KeyExchange.class);
+            try {
+                findUserByUsername(ke.username()).out.println("PUBLIC_KEY_RES "
+                        + mapper.writeValueAsString(new KeyExchange(this.username, ke.key())));
+            } catch (UserNotFoundException e) {
+                String notFoundJson = mapper.writeValueAsString(new NotFound("user", ke.username()));
+                sendResponse("PUBLIC_KEY_RES", 711, notFoundJson);
+            }
+        }
+
+        private void handleSessionKeyReq(String json) {
+
+        }
+
+        private void handleSecureReady(String json) {
+
+        }
+
 
         private void handleBroadcast(String json) throws JsonProcessingException {
             if (isNotLoggedIn()) return;
@@ -286,7 +334,7 @@ public class Server {
             String message = getPropertyFromJson(json, "message");
             users.stream().filter(user -> !user.username.equals(this.username)).forEach(user -> {
                 try {
-                    user.out.println("BROADCAST " + mapper.writeValueAsString(new BroadcastMessage(this.username, message)));
+                    user.out.println("BROADCAST " + mapper.writeValueAsString(new TextMessage(this.username, message)));
                 } catch (JsonProcessingException e) {
                     throw new RuntimeException(e);
                 }

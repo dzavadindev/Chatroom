@@ -2,16 +2,20 @@ package client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import messages.*;
+import org.w3c.dom.Text;
 
+import javax.crypto.*;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.security.*;
 import java.util.*;
 import java.util.Map.Entry;
 
@@ -30,6 +34,10 @@ public class Client {
     private String gameLobby = "";
     private FileTransferRequest latestFTR;
     private File latestSelectedFile;
+    private PublicKey publicKey;
+    private PrivateKey privateKey;
+    private final Map<String, Identifier> usernameToIdentifier = new HashMap<>();
+    private String secureMessageBuffer = "";
     // --------------- config ---------------
     private final static String FILE_TRANSFER_DIRECTORY = "resources/";
     private final static String EXTENSION_SPLITTING_REGEXP = "\\.(?=[^.]*$)";
@@ -80,8 +88,8 @@ public class Client {
                     menu();
                 }
             } catch (IOException e) {
-                throw new RuntimeException(e);
-//                System.err.println("Error in sending message: " + e.getMessage());
+//                throw new RuntimeException(e);
+                System.err.println("Error in sending message: " + e.getMessage());
             }
         }
     }
@@ -101,9 +109,9 @@ public class Client {
                 System.err.println("| Exiting...                            |");
                 System.err.println("| ------------------------------------- |");
                 System.exit(0);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-//                System.err.println("Error in receiving message: " + e.getMessage());
+            } catch (IOException | NoSuchPaddingException | NoSuchAlgorithmException | InvalidKeyException e) {
+//                throw new RuntimeException(e);
+                System.err.println("Error in receiving message: " + e.getMessage());
             }
         }
     }
@@ -123,6 +131,7 @@ public class Client {
             case "!send" -> send(content);
             case "!leave" -> leave();
             case "!direct" -> direct(content);
+            case "!secure" -> secure(content);
             case "!list" -> list();
             case "!create" -> create(content);
             case "!join" -> join(content);
@@ -139,6 +148,7 @@ public class Client {
         System.out.println("### !send <message> - sends a message to the chat");
         System.out.println("### !leave - logs you out of the chat");
         System.out.println("### !direct <username> <message> - sends a private message to a user");
+        System.out.println("### !secure <username> <message> - send an encrypted message to another user");
         System.out.println("### !list - shows all the users that are currently online");
         System.out.println("### !create <lobby name> - create a lobby for guessing game");
         System.out.println("### !join <lobby name> - enter a number guessing game is one currently is active");
@@ -148,7 +158,6 @@ public class Client {
         System.out.printf("###### The file you're planning to send must be in the \"%s\" directory.\n", FILE_TRANSFER_DIRECTORY);
         System.out.println("###### When specifying the file for transmission, include only the name and extension");
         System.out.println("### !accept/reject - accept or decline the latest file transfer offered");
-        System.out.println("### !secure <username> <message> - send an encrypted message to another user");
         coloredPrint(ANSI_GRAY, "Planning to move that functionality to private message");
     }
 
@@ -179,14 +188,20 @@ public class Client {
     }
 
     private void direct(String data) throws JsonProcessingException {
-        String[] tuple = data.split(" ", 2);
-        if (tuple.length < 2 || tuple.length > 3) {
-            coloredPrint(ANSI_RED, "Provide both username and the message");
+        out.println("PRIVATE " + mapper.writeValueAsString(textMessageFromCommand(data)));
+    }
+
+    private void secure(String data) throws JsonProcessingException {
+        TextMessage tm = textMessageFromCommand(data);
+        Identifier identifier = usernameToIdentifier.get(tm.username());
+        if (identifier == null || identifier.getSessionKey() == null) {
+            secureMessageBuffer = tm.message();
+            usernameToIdentifier.putIfAbsent(tm.username(), new Identifier());
+            out.println("PUBLIC_KEY_REQ " + mapper.writeValueAsString(new KeyExchange(tm.username(), publicKey)));
             return;
         }
-        String receiver = tuple[0].trim();
-        String message = tuple[1].trim();
-        out.println("PRIVATE " + mapper.writeValueAsString(new BroadcastMessage(receiver, message)));
+        String encryptedMessage = encrypt(tm.message(), identifier.sessionKey, generateIv());
+        out.println("SECURE " + mapper.writeValueAsString(new TextMessage(tm.username(), encryptedMessage)));
     }
 
     private void list() {
@@ -195,12 +210,21 @@ public class Client {
 
     private void send(String message) throws JsonProcessingException {
         if (!message.isBlank()) {
-            out.println("BROADCAST " + mapper.writeValueAsString(new BroadcastMessage("", message.trim())));
+            out.println("BROADCAST " + mapper.writeValueAsString(new TextMessage("", message.trim())));
         } else System.out.println("Invalid message format");
     }
 
     private void login(String username) {
         out.println("LOGIN " + wrapInJson("username", username.trim()));
+        try {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+            generator.initialize(2048);
+            KeyPair pair = generator.generateKeyPair();
+            publicKey = pair.getPublic();
+            privateKey = pair.getPrivate();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private void file(String content) {
@@ -369,9 +393,160 @@ public class Client {
         return outputStream.toByteArray();
     }
 
+    private void showGameLeaderboard(String json) throws JsonProcessingException {
+        Leaderboard leaderboard = mapper.readValue(json, Leaderboard.class);
+        coloredPrint(ANSI_YELLOW, "Game in lobby " + leaderboard.lobby() + " has ended! \n --- Scoreboard ---");
+        int index = 2;
+
+        List<Entry<String, Long>> scores = new ArrayList<>(leaderboard.leaderboard().entrySet());
+        // sort the scores to get the quickest time on the first place
+        scores.sort(Entry.comparingByValue());
+
+        for (Entry<String, Long> score : scores) {
+            if (scores.indexOf(score) == 0)
+                rainbowPrint(index + ".) " + scores.get(0).getKey() + ": " + scores.get(0).getValue() + "ms");
+            coloredPrint(ANSI_YELLOW, index + ".) " + score.getKey() + ": " + score.getValue() + "ms");
+            index++;
+        }
+        System.out.println("------------------");
+        gameLobby = "";
+    }
+
+    private void disconnect(String json) throws IOException {
+        String disconnectionReason = "Unknown cause";
+        try {
+            SystemMessage response = mapper.readValue(json, SystemMessage.class);
+            disconnectionReason = codeToMessage.get(Integer.parseInt(response.message()));
+        } catch (NumberFormatException ignored) {
+        }
+        System.out.println("You were disconnected from the server. " + disconnectionReason);
+        socket.close();
+    }
+
+    private TextMessage textMessageFromCommand(String data) {
+        String[] tuple = data.split(" ", 2);
+        if (tuple.length < 2 || tuple.length > 3) {
+            coloredPrint(ANSI_RED, "Provide both username and the message");
+            throw new IllegalArgumentException("Provided string has more than 2 parts to it. Can't create TextMessage object");
+        }
+        String receiver = tuple[0].trim();
+        String message = tuple[1].trim();
+        return new TextMessage(receiver, message);
+    }
+
+    public static String encrypt(String input, SecretKey key, IvParameterSpec iv) {
+        // honestly, I got so lost with all different AES encryption types I just chose the same as Baeldung uses.
+        // It seems that every encryption type has a unique use case, and some are actually encoding with sprinkles on top (?) (ECB)
+        // I'll surely take a better look some time later, but Im too washed to try dig into it now
+        // https://www.baeldung.com/java-aes-encryption-decryption
+        try {
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, key, iv);
+            byte[] cipherText = cipher.doFinal(input.getBytes());
+            return Base64.getEncoder()
+                    .encodeToString(cipherText);
+        } catch (NoSuchPaddingException | NoSuchAlgorithmException | InvalidAlgorithmParameterException |
+                 InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static String encryptSecretKey(SecretKey secretKey, PublicKey publicKey) {
+        try {
+            Cipher encryptCipher = Cipher.getInstance("RSA");
+            encryptCipher.init(Cipher.ENCRYPT_MODE, publicKey);
+            byte[] encryptedKey = encryptCipher.doFinal(secretKey.getEncoded());
+            return Base64.getEncoder().encodeToString(encryptedKey);
+        } catch (NoSuchAlgorithmException | NoSuchPaddingException |
+                 InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static SecretKey decryptSecretKey(String encryptedKey, PrivateKey privateKey) {
+        try {
+            Cipher decryptCipher = Cipher.getInstance("RSA");
+            decryptCipher.init(Cipher.DECRYPT_MODE, privateKey);
+            byte[] decryptedKeyBytes = decryptCipher.doFinal(Base64.getDecoder().decode(encryptedKey));
+            return new SecretKeySpec(decryptedKeyBytes, "AES");
+        } catch (NoSuchAlgorithmException | NoSuchPaddingException |
+                 InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+
+    public static String decrypt(String cipherText, SecretKey key, IvParameterSpec iv) {
+        try {
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, key, iv);
+            byte[] plainText = cipher.doFinal(Base64.getDecoder()
+                    .decode(cipherText));
+            return new String(plainText);
+        } catch (NoSuchPaddingException | NoSuchAlgorithmException | InvalidAlgorithmParameterException |
+                 InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static SecretKey generateKey(int n) { // bit size : 128, 192, 256
+        try {
+            KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
+            keyGenerator.init(n);
+            return keyGenerator.generateKey();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static IvParameterSpec generateIv() {
+        byte[] iv = new byte[16];
+        new SecureRandom().nextBytes(iv);
+        return new IvParameterSpec(iv);
+    }
+
+    private void publicKeyReq(String json) {
+        try {
+            KeyExchange ke = mapper.readValue(json, KeyExchange.class);
+            Identifier identifier = usernameToIdentifier.get(ke.username());
+            if (identifier == null || identifier.getPublicKey() == null) {
+                usernameToIdentifier.putIfAbsent(ke.username(), new Identifier(ke.key()));
+                out.println("PUBLIC_KEY_RES " + new KeyExchange("", Base64.getEncoder().encodeToString(publicKey.getEncoded())));
+            }
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+        // todo: maybe a handler for if there is an already existing public key
+    }
+
+    private void publicKeyRes(String json) {
+        try {
+            KeyExchange ke = mapper.readValue(json, KeyExchange.class);
+            Identifier identifier = usernameToIdentifier.get(ke.username());
+            if (identifier == null || identifier.getPublicKey() == null) {
+                usernameToIdentifier.putIfAbsent(ke.username(), new Identifier());
+                SecretKey sessionKey = generateKey(256);
+                usernameToIdentifier.get(ke.username()).setSessionKey(sessionKey); //todo: I don't know if this is a reference to mapped object or just the value
+                String encryptedSessionKey = encryptSecretKey(sessionKey, ke.key());
+                out.println("SESSION_KEY " + new KeyExchange("", encryptedSessionKey));/*todo: here encrypted SK*/
+            }
+        } catch (NoSuchPaddingException | IllegalBlockSizeException | NoSuchAlgorithmException |
+                 BadPaddingException | InvalidKeyException | JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void sessionKey(String json) {
+
+    }
+
+    private void secureReady(String json) {
+
+    }
+
     // --------------------------   RECEIVED MESSAGE HANDLER   ---------------------------------------
 
-    private void handleServerMessage(String message) throws IOException {
+    private void handleServerMessage(String message) throws IOException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException {
         String[] messageParts = message.split(" ", 2);
         String type = messageParts[0];
         String json = messageParts.length == 2 ? messageParts[1] : "";
@@ -382,16 +557,7 @@ public class Client {
                 Response<Object> response = mapper.readValue(json, javaType);
                 handleResponseMessages(response);
             }
-            case "DISCONNECTED" -> {
-                String disconnectionReason = "Unknown cause";
-                try {
-                    SystemMessage response = mapper.readValue(json, SystemMessage.class);
-                    disconnectionReason = codeToMessage.get(Integer.parseInt(response.message()));
-                } catch (NumberFormatException ignored) {
-                }
-                System.out.println("You were disconnected from the server. " + disconnectionReason);
-                socket.close();
-            }
+            case "DISCONNECTED" -> disconnect(json);
             case "GREET" -> {
                 SystemMessage response = mapper.readValue(json, SystemMessage.class);
                 System.out.println(response.message());
@@ -405,11 +571,11 @@ public class Client {
                 System.out.println(response.message() + " has left the chatroom");
             }
             case "BROADCAST" -> {
-                BroadcastMessage response = mapper.readValue(json, BroadcastMessage.class);
+                TextMessage response = mapper.readValue(json, TextMessage.class);
                 System.out.println("[" + response.username() + "] : " + response.message());
             }
             case "PRIVATE" -> {
-                BroadcastMessage response = mapper.readValue(json, BroadcastMessage.class);
+                TextMessage response = mapper.readValue(json, TextMessage.class);
                 coloredPrint(ANSI_CYAN, "[" + response.username() + "] : " + response.message());
             }
             case "PING" -> out.println("PONG");
@@ -419,28 +585,22 @@ public class Client {
                     coloredPrint(ANSI_YELLOW, "The game in lobby \"" + getPropertyFromJson(json, "lobby") + "\" elapsed!");
             case "GAME_GUESSED" ->
                     coloredPrint(ANSI_YELLOW, getPropertyFromJson(json, "username") + " has guessed the number!");
-            case "GAME_END" -> {
-                Leaderboard leaderboard = mapper.readValue(json, Leaderboard.class);
-                coloredPrint(ANSI_YELLOW, "Game in lobby " + leaderboard.lobby() + " has ended! \n --- Scoreboard ---");
-                int index = 2;
-
-                List<Entry<String, Long>> scores = new ArrayList<>(leaderboard.leaderboard().entrySet());
-                // sort the scores to get the quickest time on the first place
-                scores.sort(Entry.comparingByValue());
-
-                for (Entry<String, Long> score : scores) {
-                    if (scores.indexOf(score) == 0)
-                        rainbowPrint(index + ".) " + scores.get(0).getKey() + ": " + scores.get(0).getValue() + "ms");
-                    coloredPrint(ANSI_YELLOW, index + ".) " + score.getKey() + ": " + score.getValue() + "ms");
-                    index++;
-                }
-                System.out.println("------------------");
-                gameLobby = "";
-            }
+            case "GAME_END" -> showGameLeaderboard(json);
             case "GAME_FAIL" -> {
                 String lobby = getPropertyFromJson(json, "lobby");
                 coloredPrint(ANSI_MAGENTA, "The game at " + lobby + " had has ended, due to lack of players");
             }
+            case "SECURE" -> {
+                TextMessage response = mapper.readValue(json, TextMessage.class);
+                String decryptedMessage = decrypt(response.message(),
+                        usernameToIdentifier.get(response.username()).sessionKey,
+                        generateIv()); // todo: generating IV in here might be detrimental
+                coloredPrint(ANSI_MAGENTA, "[" + response.username() + "] : " + decryptedMessage);
+            }
+            case "PUBLIC_KEY_REQ" -> publicKeyReq(json);
+            case "PUBLIC_KEY_RES" -> publicKeyRes(json);
+            case "SESSION_KEY" -> sessionKey(json);
+            case "SECURE_READY" -> secureReady(json);
             case "TRANSFER_REQUEST" -> {
                 FileTransferRequest ftr = mapper.readValue(json, FileTransferRequest.class);
                 coloredPrint(ANSI_GREEN, "You are receiving an inquiry for file exchange from " + ftr.sender() + " (" + ftr.filename() + ")");
@@ -450,4 +610,36 @@ public class Client {
             default -> coloredPrint(ANSI_MAGENTA, "Unknown message type or command from the server");
         }
     }
+
+    private static class Identifier {
+        private PublicKey publicKey;
+        private SecretKey sessionKey;
+
+        public Identifier() {
+            this.publicKey = null;
+            this.sessionKey = null;
+        }
+
+        public Identifier(PublicKey publicKey) {
+            this.publicKey = publicKey;
+            this.sessionKey = null;
+        }
+
+        public PublicKey getPublicKey() {
+            return publicKey;
+        }
+
+        public SecretKey getSessionKey() {
+            return sessionKey;
+        }
+
+        public void setPublicKey(PublicKey publicKey) {
+            this.publicKey = publicKey;
+        }
+
+        public void setSessionKey(SecretKey sessionKey) {
+            this.sessionKey = sessionKey;
+        }
+    }
+
 }
