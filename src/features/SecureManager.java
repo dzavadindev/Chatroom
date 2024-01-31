@@ -90,6 +90,7 @@ public class SecureManager {
                 SecretKey sessionKey = generateKey(256);
                 usernameToIdentifier.get(ke.username()).setSessionKey(sessionKey); //todo: I don't know if this is a reference to mapped object or just the value
                 String encryptedSessionKey = rsaEncrypt(sessionKey, ke.key());
+                // todo: should I use encryption with IV, or is it not necessary, as we are just trying to prevent messages from being understood in transit
                 out.println("SESSION_KEY " + new KeyExchange("", encryptedSessionKey));/*todo: here encrypted SK*/
             }
         } catch (NoSuchPaddingException | IllegalBlockSizeException | NoSuchAlgorithmException |

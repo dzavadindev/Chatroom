@@ -134,7 +134,6 @@ public class GuessingGame implements Runnable {
     class CollectionPeriod implements Runnable {
         @Override
         public void run() {
-            // todo: if creator is the only one in game, close
             if (players.size() == 1) {
                 notifyEveryone("GAME_FAIL " + wrapInJson("lobby", lobbyName));
                 new EndGame(false).run();
@@ -166,7 +165,7 @@ public class GuessingGame implements Runnable {
                     notifyEveryone("GAME_END " + mapper.writeValueAsString(new Leaderboard(lobbyName, leaderboard)));
                 }
                 players.forEach(Connection::leaveGame);
-                Thread.currentThread().interrupt(); // todo: does this interrupt the main, or the task thread?
+                Thread.currentThread().interrupt();
             } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
             }

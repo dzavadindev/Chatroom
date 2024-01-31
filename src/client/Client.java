@@ -242,82 +242,6 @@ public class Client {
         out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(false, "this.username", latestFTR.sessionId())));
     }
 
-    private void handleResponseMessages(Response<?> response) {
-        if (response.status() == 800) {
-            successfulMessagesHandler(response);
-            return;
-        }
-        String message = codeToMessage.get(response.status());
-        if (message == null) {
-            System.err.println("Server responded with an unknown status code");
-            return;
-        }
-
-        try {
-            if (response.status() == 711) {
-                System.out.println(response);
-                NotFound notFound = mapper.readValue((String) response.content(), NotFound.class);
-                message = String.format(message, notFound.resource(), notFound.content());
-                coloredPrint(ANSI_RED, message);
-                return;
-            }
-
-            message = String.format(message, response.content());
-            coloredPrint(ANSI_RED, message);
-        } catch (MissingFormatArgumentException e) {
-            coloredPrint(ANSI_RED, message);
-        } catch (JsonProcessingException e) {
-            coloredPrint(ANSI_RED, "Couldn't deserialize JSON from the response");
-        }
-    }
-
-    private void successfulMessagesHandler(Response<?> response) {
-        switch (response.to()) {
-            // the response.content() that is received at this point is an Object instance
-            // thus it can be anything. For that reason, casting is required when receiving
-            // any input. This is working on the fact that the client knows what type of
-            // command was received
-
-            // case "COMMAND" -> System.out.println(((ArrayList<String>) response.content())
-
-            case "LOGIN" -> coloredPrint(ANSI_CYAN, "Logged in successfully!");
-            case "LIST" -> System.out.println(response.content());
-            case "TRANSFER_RESPONSE" -> coloredPrint(ANSI_GREEN, "Your response was sent to the sender");
-            case "GAME_LAUNCH" -> coloredPrint(ANSI_YELLOW, "Game started!");
-            case "GAME_JOIN" -> {
-                coloredPrint(ANSI_YELLOW, "Joined the game at " + response.content());
-                gameLobby = (String) response.content();
-            }
-            case "GAME_GUESS" -> {
-                switch ((int) response.content()) {
-                    case -1 -> coloredPrint(ANSI_YELLOW, "Guess bigger!");
-                    case 0 -> coloredPrint(ANSI_YELLOW, "You have guessed the number!");
-                    case 1 -> coloredPrint(ANSI_YELLOW, "Guess lesser!");
-                }
-            }
-            case "SEND_FILE" -> {
-                if (response.content().equals("OK")) {
-                    coloredPrint(ANSI_GREEN, "Request sent to the user");
-                    return;
-                }
-                try {
-                    FileTransferResponse ftr = mapper.readValue((String) response.content(), FileTransferResponse.class);
-
-                    if (ftr.status()) {
-                        coloredPrint(ANSI_GREEN, ftr.sender() + " has ACCEPTED your file transfer inquiry! Preparing transmission...");
-                        System.out.println("Initiating file transfer senders side");
-                        initFileTransfer(ftr.sessionId(), latestSelectedFile);
-                    } else coloredPrint(ANSI_GREEN, ftr.sender() + " has REJECTED your file transfer inquiry.");
-                } catch (JsonProcessingException e) {
-                    coloredPrint(ANSI_RED, "Failed to parse the response to the file transfer response format");
-                }
-            }
-            default ->
-                    coloredPrint(ANSI_GRAY, "OK status received. Unknown destination of the response: " + response.to());
-        }
-    }
-
-
     // -----------------------------------   UTILS   ------------------------------------------------
     private void initFileTransfer(UUID sessionId, File file) {
         try (Socket senderSocket = new Socket(SERVER_ADDRESS, FILE_TRANSFER_PORT)) {
@@ -354,7 +278,7 @@ public class Client {
         // todo: verify checksum
     }
 
-    public static byte[] convertUUIDToBytes(UUID uuid) {
+    private static byte[] convertUUIDToBytes(UUID uuid) {
         ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
         bb.putLong(uuid.getMostSignificantBits());
         bb.putLong(uuid.getLeastSignificantBits());
@@ -463,4 +387,81 @@ public class Client {
         }
     }
 
+    private void handleResponseMessages(Response<?> response) {
+        if (response.status() == 800) {
+            successfulMessagesHandler(response);
+            return;
+        }
+        String message = codeToMessage.get(response.status());
+        if (message == null) {
+            System.err.println("Server responded with an unknown status code");
+            return;
+        }
+
+        try {
+            if (response.status() == 711) {
+                System.out.println(response);
+                NotFound notFound = mapper.readValue((String) response.content(), NotFound.class);
+                message = String.format(message, notFound.resource(), notFound.content());
+                coloredPrint(ANSI_RED, message);
+                return;
+            }
+
+            message = String.format(message, response.content());
+            coloredPrint(ANSI_RED, message);
+        } catch (MissingFormatArgumentException e) {
+            coloredPrint(ANSI_RED, message);
+        } catch (JsonProcessingException e) {
+            coloredPrint(ANSI_RED, "Couldn't deserialize JSON from the response");
+        }
+    }
+
+    private void successfulMessagesHandler(Response<?> response) {
+        switch (response.to()) {
+            // the response.content() that is received at this point is an Object instance
+            // thus it can be anything. For that reason, casting is required when receiving
+            // any input. This is working on the fact that the client knows what type of
+            // command was received
+
+            // case "COMMAND" -> System.out.println(((ArrayList<String>) response.content())
+
+            case "LOGIN" -> coloredPrint(ANSI_CYAN, "Logged in successfully!");
+            case "LIST" -> System.out.println(response.content());
+            case "TRANSFER_RESPONSE" -> coloredPrint(ANSI_GREEN, "Your response was sent to the sender");
+            case "GAME_LAUNCH" -> coloredPrint(ANSI_YELLOW, "Game started!");
+            case "GAME_JOIN" -> {
+                coloredPrint(ANSI_YELLOW, "Joined the game at " + response.content());
+                gameLobby = (String) response.content();
+            }
+            case "GAME_GUESS" -> {
+                switch ((int) response.content()) {
+                    case -1 -> coloredPrint(ANSI_YELLOW, "Guess bigger!");
+                    case 0 -> coloredPrint(ANSI_YELLOW, "You have guessed the number!");
+                    case 1 -> coloredPrint(ANSI_YELLOW, "Guess lesser!");
+                }
+            }
+            case "SEND_FILE" -> {
+                if (response.content().equals("OK")) {
+                    coloredPrint(ANSI_GREEN, "Request sent to the user");
+                    return;
+                }
+                try {
+                    FileTransferResponse ftr = mapper.readValue((String) response.content(), FileTransferResponse.class);
+
+                    if (ftr.status()) {
+                        coloredPrint(ANSI_GREEN, ftr.sender() + " has ACCEPTED your file transfer inquiry! Preparing transmission...");
+                        System.out.println("Initiating file transfer senders side");
+                        initFileTransfer(ftr.sessionId(), latestSelectedFile);
+                    } else coloredPrint(ANSI_GREEN, ftr.sender() + " has REJECTED your file transfer inquiry.");
+                } catch (JsonProcessingException e) {
+                    coloredPrint(ANSI_RED, "Failed to parse the response to the file transfer response format");
+                }
+            }
+            default ->
+                    coloredPrint(ANSI_GRAY, "OK status received. Unknown destination of the response: " + response.to());
+        }
+    }
+
 }
+
+//todo: refactor game and transfer to separate managers, gonna make the code look so clean

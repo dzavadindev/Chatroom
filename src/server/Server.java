@@ -231,9 +231,6 @@ public class Server {
             users.stream()
                     .filter(user -> !user.username.equals(this.username))
                     .forEach(user -> user.out.println("GAME_LAUNCHED " + wrapInJson("lobby", lobbyName)));
-
-            // TODO create a sequence diagram for the flow of a game
-
         }
 
         private void handleGameJoin(GuessingGame game) throws JsonProcessingException {
@@ -286,15 +283,15 @@ public class Server {
         }
 
         private void handleSecure(String json) throws JsonProcessingException {
-//            if (isNotLoggedIn()) return;
-//
-//            String message = getPropertyFromJson(json, "message");
-//            String receiverName = getPropertyFromJson(json, "username");
-//
-//            if (this.username.equals(receiverName)) {
-//                sendResponse("SECURE", 822, "ERROR");
-//                return;
-//            }
+            if (isNotLoggedIn()) return;
+
+            String message = getPropertyFromJson(json, "message");
+            String receiverName = getPropertyFromJson(json, "username");
+
+            if (this.username.equals(receiverName)) {
+                sendResponse("SECURE", 822, "ERROR");
+                return;
+            }
         }
 
         private void handlePublicKeyReq(String json) throws JsonProcessingException {
