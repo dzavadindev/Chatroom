@@ -1,4 +1,4 @@
-package features;
+package features.file_transfer;
 
 import java.io.*;
 import java.net.ServerSocket;

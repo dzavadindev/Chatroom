@@ -3,6 +3,10 @@ package util;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import messages.TextMessage;
+
+import static colors.ANSIColors.ANSI_RED;
+import static colors.ANSIColors.coloredPrint;
 
 public class Util {
     // For one value JSON objects, as those are not converted to the right format with the mapper.
@@ -17,4 +21,16 @@ public class Util {
         JsonNode node = mapper.readTree(json);
         return node.path(property).asText();
     }
+
+    public static TextMessage textMessageFromCommand(String data) {
+        String[] tuple = data.split(" ", 2);
+        if (tuple.length < 2 || tuple.length > 3) {
+            coloredPrint(ANSI_RED, "Provide both username and the message");
+            throw new IllegalArgumentException("Provided string has more than 2 parts to it. Can't create TextMessage object");
+        }
+        String receiver = tuple[0].trim();
+        String message = tuple[1].trim();
+        return new TextMessage(receiver, message);
+    }
+
 }

@@ -4,8 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import exceptions.UserNotFoundException;
-import features.FileTransfer;
-import features.GuessingGame;
+import features.file_transfer.FileTransfer;
+import features.guessing_game.GuessingGame;
 import messages.*;
 
 import java.io.*;

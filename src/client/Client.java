@@ -2,14 +2,11 @@ package client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
-import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import features.SecureManager;
 import messages.*;
-import org.w3c.dom.Text;
 
 import javax.crypto.*;
-import javax.crypto.spec.IvParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
@@ -34,14 +31,11 @@ public class Client {
     private String gameLobby = "";
     private FileTransferRequest latestFTR;
     private File latestSelectedFile;
-    private PublicKey publicKey;
-    private PrivateKey privateKey;
-    private final Map<String, Identifier> usernameToIdentifier = new HashMap<>();
-    private String secureMessageBuffer = "";
+    private SecureManager secureManager;
     // --------------- config ---------------
     private final static String FILE_TRANSFER_DIRECTORY = "resources/";
     private final static String EXTENSION_SPLITTING_REGEXP = "\\.(?=[^.]*$)";
-    private final static String SERVER_ADDRESS = "127.0.0.1"; //"192.168.178.151"
+    private final static String SERVER_ADDRESS = "127.0.0.1";
     private final static int SERVER_PORT = 1337, FILE_TRANSFER_PORT = 1338;
 
     public Client(String address, int port) {
@@ -161,18 +155,9 @@ public class Client {
         coloredPrint(ANSI_GRAY, "Planning to move that functionality to private message");
     }
 
-    private void create(String lobby) {
-        out.println("GAME_LAUNCH " + wrapInJson("lobby", lobby.trim()));
-        gameLobby = lobby.trim();
-    }
-
-    private void join(String lobby) {
-        out.println("GAME_JOIN " + wrapInJson("lobby", lobby.trim()));
-        gameLobby = lobby.trim();
-    }
-
-    private void guess(String guess) throws JsonProcessingException {
-        out.println("GAME_GUESS " + mapper.writeValueAsString(new GameGuess(gameLobby, Integer.parseInt(guess))));
+    private void login(String username) {
+        out.println("LOGIN " + wrapInJson("username", username.trim()));
+        this.secureManager = new SecureManager(out);
     }
 
     private void leave() {
@@ -187,21 +172,26 @@ public class Client {
         }
     }
 
+    private void create(String lobby) {
+        out.println("GAME_LAUNCH " + wrapInJson("lobby", lobby.trim()));
+        gameLobby = lobby.trim();
+    }
+
+    private void join(String lobby) {
+        out.println("GAME_JOIN " + wrapInJson("lobby", lobby.trim()));
+        gameLobby = lobby.trim();
+    }
+
+    private void guess(String guess) throws JsonProcessingException {
+        out.println("GAME_GUESS " + mapper.writeValueAsString(new GameGuess(gameLobby, Integer.parseInt(guess))));
+    }
+
     private void direct(String data) throws JsonProcessingException {
         out.println("PRIVATE " + mapper.writeValueAsString(textMessageFromCommand(data)));
     }
 
     private void secure(String data) throws JsonProcessingException {
-        TextMessage tm = textMessageFromCommand(data);
-        Identifier identifier = usernameToIdentifier.get(tm.username());
-        if (identifier == null || identifier.getSessionKey() == null) {
-            secureMessageBuffer = tm.message();
-            usernameToIdentifier.putIfAbsent(tm.username(), new Identifier());
-            out.println("PUBLIC_KEY_REQ " + mapper.writeValueAsString(new KeyExchange(tm.username(), publicKey)));
-            return;
-        }
-        String encryptedMessage = encrypt(tm.message(), identifier.sessionKey, generateIv());
-        out.println("SECURE " + mapper.writeValueAsString(new TextMessage(tm.username(), encryptedMessage)));
+        secureManager.handleSendSecure(data);
     }
 
     private void list() {
@@ -212,19 +202,6 @@ public class Client {
         if (!message.isBlank()) {
             out.println("BROADCAST " + mapper.writeValueAsString(new TextMessage("", message.trim())));
         } else System.out.println("Invalid message format");
-    }
-
-    private void login(String username) {
-        out.println("LOGIN " + wrapInJson("username", username.trim()));
-        try {
-            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-            generator.initialize(2048);
-            KeyPair pair = generator.generateKeyPair();
-            publicKey = pair.getPublic();
-            privateKey = pair.getPrivate();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
     }
 
     private void file(String content) {
@@ -340,6 +317,7 @@ public class Client {
         }
     }
 
+
     // -----------------------------------   UTILS   ------------------------------------------------
     private void initFileTransfer(UUID sessionId, File file) {
         try (Socket senderSocket = new Socket(SERVER_ADDRESS, FILE_TRANSFER_PORT)) {
@@ -423,126 +401,6 @@ public class Client {
         socket.close();
     }
 
-    private TextMessage textMessageFromCommand(String data) {
-        String[] tuple = data.split(" ", 2);
-        if (tuple.length < 2 || tuple.length > 3) {
-            coloredPrint(ANSI_RED, "Provide both username and the message");
-            throw new IllegalArgumentException("Provided string has more than 2 parts to it. Can't create TextMessage object");
-        }
-        String receiver = tuple[0].trim();
-        String message = tuple[1].trim();
-        return new TextMessage(receiver, message);
-    }
-
-    public static String encrypt(String input, SecretKey key, IvParameterSpec iv) {
-        // honestly, I got so lost with all different AES encryption types I just chose the same as Baeldung uses.
-        // It seems that every encryption type has a unique use case, and some are actually encoding with sprinkles on top (?) (ECB)
-        // I'll surely take a better look some time later, but Im too washed to try dig into it now
-        // https://www.baeldung.com/java-aes-encryption-decryption
-        try {
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-            cipher.init(Cipher.ENCRYPT_MODE, key, iv);
-            byte[] cipherText = cipher.doFinal(input.getBytes());
-            return Base64.getEncoder()
-                    .encodeToString(cipherText);
-        } catch (NoSuchPaddingException | NoSuchAlgorithmException | InvalidAlgorithmParameterException |
-                 InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public static String encryptSecretKey(SecretKey secretKey, PublicKey publicKey) {
-        try {
-            Cipher encryptCipher = Cipher.getInstance("RSA");
-            encryptCipher.init(Cipher.ENCRYPT_MODE, publicKey);
-            byte[] encryptedKey = encryptCipher.doFinal(secretKey.getEncoded());
-            return Base64.getEncoder().encodeToString(encryptedKey);
-        } catch (NoSuchAlgorithmException | NoSuchPaddingException |
-                 InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public static SecretKey decryptSecretKey(String encryptedKey, PrivateKey privateKey) {
-        try {
-            Cipher decryptCipher = Cipher.getInstance("RSA");
-            decryptCipher.init(Cipher.DECRYPT_MODE, privateKey);
-            byte[] decryptedKeyBytes = decryptCipher.doFinal(Base64.getDecoder().decode(encryptedKey));
-            return new SecretKeySpec(decryptedKeyBytes, "AES");
-        } catch (NoSuchAlgorithmException | NoSuchPaddingException |
-                 InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-
-    public static String decrypt(String cipherText, SecretKey key, IvParameterSpec iv) {
-        try {
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-            cipher.init(Cipher.DECRYPT_MODE, key, iv);
-            byte[] plainText = cipher.doFinal(Base64.getDecoder()
-                    .decode(cipherText));
-            return new String(plainText);
-        } catch (NoSuchPaddingException | NoSuchAlgorithmException | InvalidAlgorithmParameterException |
-                 InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public static SecretKey generateKey(int n) { // bit size : 128, 192, 256
-        try {
-            KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
-            keyGenerator.init(n);
-            return keyGenerator.generateKey();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public static IvParameterSpec generateIv() {
-        byte[] iv = new byte[16];
-        new SecureRandom().nextBytes(iv);
-        return new IvParameterSpec(iv);
-    }
-
-    private void publicKeyReq(String json) {
-        try {
-            KeyExchange ke = mapper.readValue(json, KeyExchange.class);
-            Identifier identifier = usernameToIdentifier.get(ke.username());
-            if (identifier == null || identifier.getPublicKey() == null) {
-                usernameToIdentifier.putIfAbsent(ke.username(), new Identifier(ke.key()));
-                out.println("PUBLIC_KEY_RES " + new KeyExchange("", Base64.getEncoder().encodeToString(publicKey.getEncoded())));
-            }
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
-        }
-        // todo: maybe a handler for if there is an already existing public key
-    }
-
-    private void publicKeyRes(String json) {
-        try {
-            KeyExchange ke = mapper.readValue(json, KeyExchange.class);
-            Identifier identifier = usernameToIdentifier.get(ke.username());
-            if (identifier == null || identifier.getPublicKey() == null) {
-                usernameToIdentifier.putIfAbsent(ke.username(), new Identifier());
-                SecretKey sessionKey = generateKey(256);
-                usernameToIdentifier.get(ke.username()).setSessionKey(sessionKey); //todo: I don't know if this is a reference to mapped object or just the value
-                String encryptedSessionKey = encryptSecretKey(sessionKey, ke.key());
-                out.println("SESSION_KEY " + new KeyExchange("", encryptedSessionKey));/*todo: here encrypted SK*/
-            }
-        } catch (NoSuchPaddingException | IllegalBlockSizeException | NoSuchAlgorithmException |
-                 BadPaddingException | InvalidKeyException | JsonProcessingException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private void sessionKey(String json) {
-
-    }
-
-    private void secureReady(String json) {
-
-    }
 
     // --------------------------   RECEIVED MESSAGE HANDLER   ---------------------------------------
 
@@ -590,17 +448,11 @@ public class Client {
                 String lobby = getPropertyFromJson(json, "lobby");
                 coloredPrint(ANSI_MAGENTA, "The game at " + lobby + " had has ended, due to lack of players");
             }
-            case "SECURE" -> {
-                TextMessage response = mapper.readValue(json, TextMessage.class);
-                String decryptedMessage = decrypt(response.message(),
-                        usernameToIdentifier.get(response.username()).sessionKey,
-                        generateIv()); // todo: generating IV in here might be detrimental
-                coloredPrint(ANSI_MAGENTA, "[" + response.username() + "] : " + decryptedMessage);
-            }
-            case "PUBLIC_KEY_REQ" -> publicKeyReq(json);
-            case "PUBLIC_KEY_RES" -> publicKeyRes(json);
-            case "SESSION_KEY" -> sessionKey(json);
-            case "SECURE_READY" -> secureReady(json);
+            case "SECURE" -> secureManager.handleReceiveSecure(json);
+            case "PUBLIC_KEY_REQ" -> secureManager.handlePublicKeyReq(json);
+            case "PUBLIC_KEY_RES" -> secureManager.handlePublicKeyRes(json);
+            case "SESSION_KEY" -> secureManager.handleSessionKey(json);
+            case "SECURE_READY" -> secureManager.handleSecureReady(json);
             case "TRANSFER_REQUEST" -> {
                 FileTransferRequest ftr = mapper.readValue(json, FileTransferRequest.class);
                 coloredPrint(ANSI_GREEN, "You are receiving an inquiry for file exchange from " + ftr.sender() + " (" + ftr.filename() + ")");
@@ -608,37 +460,6 @@ public class Client {
             }
             case "PARSE_ERROR" -> coloredPrint(ANSI_MAGENTA, "Parse error occurred processing your message");
             default -> coloredPrint(ANSI_MAGENTA, "Unknown message type or command from the server");
-        }
-    }
-
-    private static class Identifier {
-        private PublicKey publicKey;
-        private SecretKey sessionKey;
-
-        public Identifier() {
-            this.publicKey = null;
-            this.sessionKey = null;
-        }
-
-        public Identifier(PublicKey publicKey) {
-            this.publicKey = publicKey;
-            this.sessionKey = null;
-        }
-
-        public PublicKey getPublicKey() {
-            return publicKey;
-        }
-
-        public SecretKey getSessionKey() {
-            return sessionKey;
-        }
-
-        public void setPublicKey(PublicKey publicKey) {
-            this.publicKey = publicKey;
-        }
-
-        public void setSessionKey(SecretKey sessionKey) {
-            this.sessionKey = sessionKey;
         }
     }
 
