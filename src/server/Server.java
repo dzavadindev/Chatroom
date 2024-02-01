@@ -74,7 +74,6 @@ public class Server {
         private boolean alive = true, hasLoggedIn = false, inGame = false;
         public String username = "";
         private final List<FileTransferRequest> pendingFTRequests = new LinkedList<>(); // todo: maybe change to a map UUID:FileTransferRequest?
-
         public Connection(Socket allocatedSocket) throws IOException {
             this.allocatedSocket = allocatedSocket;
             this.out = new PrintWriter(allocatedSocket.getOutputStream(), true);

@@ -223,16 +223,16 @@ public class Client {
             md.update(Files.readAllBytes(latestSelectedFile.toPath()));
             byte[] digest = md.digest();
             checksum = HexFormat.of().formatHex(digest).toLowerCase();
-            System.out.println(checksum);
-            out.println("SEND_FILE " + mapper.writeValueAsString(
-                    new FileTransferRequest(filename, receiver, "", UUID.randomUUID()))
-            );
+            FileTransferRequest ftr = new FileTransferRequest(filename, receiver, "", UUID.randomUUID());
+            out.println("SEND_FILE " + mapper.writeValueAsString(ftr));
+            System.out.println("Initial request: " + ftr);
         } catch (NoSuchAlgorithmException | IOException e) {
             throw new RuntimeException(e);
         }
     }
 
     private void accept() throws JsonProcessingException {
+        System.out.println("Last saved request " + latestFTR);
         out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(true, "this.username", latestFTR.sessionId())));
         System.out.println("Initiating file transfer receiver side");
         initFileTransfer(latestFTR.sessionId());
@@ -260,9 +260,12 @@ public class Client {
         try (Socket receiverSocket = new Socket(SERVER_ADDRESS, FILE_TRANSFER_PORT)) {
             OutputStream output = receiverSocket.getOutputStream();
             InputStream input = receiverSocket.getInputStream();
+            System.out.println("SessionID: " + sessionId);
+            System.out.println("Length: " + sessionId.toString().length());
             byte[] receiverData = createByteArray('R', sessionId);
             System.out.println("Byte array " + Arrays.toString(receiverData));
             output.write(receiverData);
+            output.flush();
             String[] filename = latestFTR.filename().split(EXTENSION_SPLITTING_REGEXP);
             System.out.println(latestFTR.filename());
             System.out.println(Arrays.toString(filename));
@@ -279,10 +282,11 @@ public class Client {
     }
 
     private static byte[] convertUUIDToBytes(UUID uuid) {
-        ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
-        bb.putLong(uuid.getMostSignificantBits());
-        bb.putLong(uuid.getLeastSignificantBits());
-        return bb.array();
+//        ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
+//        bb.putLong(uuid.getMostSignificantBits());
+//        bb.putLong(uuid.getLeastSignificantBits());
+//        return bb.array();
+        return uuid.toString().getBytes();
     }
 
     private byte[] createByteArray(char letter, UUID uuid) throws IOException {
@@ -380,6 +384,7 @@ public class Client {
             case "TRANSFER_REQUEST" -> {
                 FileTransferRequest ftr = mapper.readValue(json, FileTransferRequest.class);
                 coloredPrint(ANSI_GREEN, "You are receiving an inquiry for file exchange from " + ftr.sender() + " (" + ftr.filename() + ")");
+                System.out.println("Received request " + ftr);
                 latestFTR = ftr;
             }
             case "PARSE_ERROR" -> coloredPrint(ANSI_MAGENTA, "Parse error occurred processing your message");
@@ -447,7 +452,7 @@ public class Client {
                 }
                 try {
                     FileTransferResponse ftr = mapper.readValue((String) response.content(), FileTransferResponse.class);
-
+                    System.out.println(ftr);
                     if (ftr.status()) {
                         coloredPrint(ANSI_GREEN, ftr.sender() + " has ACCEPTED your file transfer inquiry! Preparing transmission...");
                         System.out.println("Initiating file transfer senders side");

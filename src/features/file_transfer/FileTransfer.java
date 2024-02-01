@@ -50,14 +50,15 @@ public class FileTransfer implements Runnable {
         public void run() {
             try {
                 String role = new String(in.readNBytes(1), StandardCharsets.UTF_8);
+                System.out.println("Role: " + role);
                 UUID sessionId = UUID.nameUUIDFromBytes(in.readNBytes(36));
+                System.out.println("UUID: " + sessionId);
                 // I think it gets stuck here? Thats what the debugger seems to show
                 // Also, from what I see only one thread of the actor is present, meaning it might have been interrupted
 
                 Session session = sessions.get(sessionId) != null ? sessions.get(sessionId) : new Session();
                 sessions.putIfAbsent(sessionId, session);
 
-                System.out.println("Role " + role);
                 System.out.println("Session " + sessionId);
 
                 switch (role) {
@@ -74,6 +75,7 @@ public class FileTransfer implements Runnable {
 
                 if (session.receiver != null && session.sender != null) {
                     System.out.println("Starting transfer");
+                    // todo: doesn't get in here
                     session.sender.in.transferTo(session.receiver.out);
                 }
 
