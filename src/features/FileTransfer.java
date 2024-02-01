@@ -1,4 +1,4 @@
-package features.file_transfer;
+package features;
 
 import java.io.*;
 import java.net.ServerSocket;
@@ -56,8 +56,7 @@ public class FileTransfer implements Runnable {
                 // I think it gets stuck here? Thats what the debugger seems to show
                 // Also, from what I see only one thread of the actor is present, meaning it might have been interrupted
 
-                Session session = sessions.get(sessionId) != null ? sessions.get(sessionId) : new Session();
-                sessions.putIfAbsent(sessionId, session);
+                Session session = sessions.computeIfAbsent(sessionId, k -> new Session());
 
                 System.out.println("Session " + sessionId);
 
@@ -65,10 +64,12 @@ public class FileTransfer implements Runnable {
                     case "S" -> {
                         System.out.println("Setting sender");
                         session.setSender(this);
+                        sessions.put(sessionId, session);
                     }
                     case "R" -> {
                         System.out.println("Setting receiver");
                         session.setReceiver(this);
+                        sessions.put(sessionId, session);
                     }
                     default -> System.out.println("Unknown role: '" + role + "'");
                 }

@@ -1,4 +1,4 @@
-package features.guessing_game;
+package features;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -43,11 +43,12 @@ public class GuessingGame implements Runnable {
 
     }
 
-    public GuessingGame(String lobbyName, Connection initiator, int lower, int upper) {
-        players.add(initiator);
-        this.answer = (new Random()).nextInt(lower, upper + 1);
-        this.lobbyName = lobbyName;
-    }
+//     Potential expansion of configurable upper and lower bounds of the game
+//    public GuessingGame(String lobbyName, Connection initiator, int lower, int upper) {
+//        players.add(initiator);
+//        this.answer = (new Random()).nextInt(lower, upper + 1);
+//        this.lobbyName = lobbyName;
+//    }
 
 
     @Override

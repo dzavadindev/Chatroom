@@ -1,4 +1,4 @@
-package features;
+package client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,24 +45,28 @@ public class SecureManager {
 
     // -------------------------------   SECURE MESSAGE HANDLERS   ---------------------------------------------
 
-    public void handleSendSecure(String data) throws JsonProcessingException {
-        TextMessage tm = textMessageFromCommand(data);
-        Identifier identifier = usernameToIdentifier.get(tm.username());
-        if (identifier == null || identifier.getSessionKey() == null) {
-            secureMessageBuffer = tm.message();
-            usernameToIdentifier.putIfAbsent(tm.username(), new Identifier());
-            out.println("PUBLIC_KEY_REQ " + mapper.writeValueAsString(new KeyExchange(tm.username(), encodeKey(publicKey))));
-            return;
+    public void handleSendSecure(String data) {
+        try {
+            TextMessage tm = textMessageFromCommand(data);
+            Identifier identifier = usernameToIdentifier.get(tm.username());
+            if (identifier == null || identifier.getSessionKey() == null) {
+                secureMessageBuffer = tm.message();
+                usernameToIdentifier.putIfAbsent(tm.username(), new Identifier());
+                out.println("PUBLIC_KEY_REQ " + mapper.writeValueAsString(new KeyExchange(tm.username(), encodeKey(publicKey))));
+                return;
+            }
+            String encryptedMessage = aesEncrypt(tm.message(), identifier.sessionKey, generateIv());
+            out.println("SECURE " + mapper.writeValueAsString(new TextMessage(tm.username(), encryptedMessage)));
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
         }
-        String encryptedMessage = aesEncrypt(tm.message(), identifier.sessionKey, generateIv());
-        out.println("SECURE " + mapper.writeValueAsString(new TextMessage(tm.username(), encryptedMessage)));
     }
 
     public void handleReceiveSecure(String json) throws JsonProcessingException {
         TextMessage response = mapper.readValue(json, TextMessage.class);
         String decryptedMessage = aesDecrypt(response.message(),
                 usernameToIdentifier.get(response.username()).sessionKey,
-                generateIv()); // todo: generating IV in here might be detrimental
+                generateIv()); // todo: no need for an IV mate
         coloredPrint(ANSI_MAGENTA, "[" + response.username() + "] : " + decryptedMessage);
     }
 
@@ -82,21 +86,21 @@ public class SecureManager {
     }
 
     public void handlePublicKeyRes(String json) {
-        try {
-            KeyExchange ke = mapper.readValue(json, KeyExchange.class);
-            Identifier identifier = usernameToIdentifier.get(ke.username());
-            if (identifier == null || identifier.getPublicKey() == null) {
-                usernameToIdentifier.putIfAbsent(ke.username(), new Identifier());
-                SecretKey sessionKey = generateKey(256);
-                usernameToIdentifier.get(ke.username()).setSessionKey(sessionKey); //todo: I don't know if this is a reference to mapped object or just the value
-                String encryptedSessionKey = rsaEncrypt(sessionKey, ke.key());
-                // todo: should I use encryption with IV, or is it not necessary, as we are just trying to prevent messages from being understood in transit
-                out.println("SESSION_KEY " + new KeyExchange("", encryptedSessionKey));/*todo: here encrypted SK*/
-            }
-        } catch (NoSuchPaddingException | IllegalBlockSizeException | NoSuchAlgorithmException |
-                 BadPaddingException | InvalidKeyException | JsonProcessingException e) {
-            throw new RuntimeException(e);
-        }
+//        try {
+//            KeyExchange ke = mapper.readValue(json, KeyExchange.class);
+//            Identifier identifier = usernameToIdentifier.get(ke.username());
+//            if (identifier == null || identifier.getPublicKey() == null) {
+//                usernameToIdentifier.putIfAbsent(ke.username(), new Identifier());
+//                SecretKey sessionKey = generateKey(256);
+//                usernameToIdentifier.get(ke.username()).setSessionKey(sessionKey); //todo: I don't know if this is a reference to mapped object or just the value
+//                String encryptedSessionKey = rsaEncrypt(sessionKey, ke.key());
+//                // todo: should I use encryption with IV, or is it not necessary, as we are just trying to prevent messages from being understood in transit
+//                out.println("SESSION_KEY " + new KeyExchange("", encryptedSessionKey));/*todo: here encrypted SK*/
+//            }
+//        } catch (NoSuchPaddingException | IllegalBlockSizeException | NoSuchAlgorithmException |
+//                 BadPaddingException | InvalidKeyException | JsonProcessingException e) {
+//            throw new RuntimeException(e);
+//        }
     }
 
     public void handleSessionKey(String json) {

@@ -3,18 +3,14 @@ package client;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import features.SecureManager;
 import messages.*;
 
 import javax.crypto.*;
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
-import java.nio.ByteBuffer;
-import java.nio.file.Files;
 import java.security.*;
 import java.util.*;
-import java.util.Map.Entry;
 
 import static colors.ANSIColors.*;
 import static util.Util.*;
@@ -28,15 +24,13 @@ public class Client {
     private BufferedReader in;
     private ObjectMapper mapper;
     // --------------- features ---------------
-    private String gameLobby = "";
-    private FileTransferRequest latestFTR;
-    private File latestSelectedFile;
+    private GuessingGameManager guessingGameManager;
     private SecureManager secureManager;
+    private FileTransferManager fileTransferManager;
     // --------------- config ---------------
-    private final static String FILE_TRANSFER_DIRECTORY = "resources/";
-    private final static String EXTENSION_SPLITTING_REGEXP = "\\.(?=[^.]*$)";
+
     private final static String SERVER_ADDRESS = "127.0.0.1";
-    private final static int SERVER_PORT = 1337, FILE_TRANSFER_PORT = 1338;
+    private final static int SERVER_PORT = 1337;
 
     public Client(String address, int port) {
         try {
@@ -54,6 +48,9 @@ public class Client {
             out = new PrintWriter(socket.getOutputStream(), true);
             // With "in" I am able to read the input stream (server messages) into the application currently running
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+
+            guessingGameManager = new GuessingGameManager(out, in);
+            fileTransferManager = new FileTransferManager(out, in, address);
 
             System.out.println("Type \"!help\" to receive the list of commands");
             startClient();
@@ -131,6 +128,7 @@ public class Client {
             case "!join" -> join(content);
             case "!guess" -> guess(content);
             case "!file" -> file(content);
+            case "!ls" -> showFiles();
             case "!accept" -> accept();
             case "!reject" -> reject();
             default -> System.out.println("Unknown operation");
@@ -147,51 +145,17 @@ public class Client {
         System.out.println("### !create <lobby name> - create a lobby for guessing game");
         System.out.println("### !join <lobby name> - enter a number guessing game is one currently is active");
         System.out.println("### !guess <guess> - enter your guess for the number guessing game if you're in a game");
+        System.out.println("### !ls - list the files that are available for file transfer (inside your exchange directory)");
         System.out.println("### !file <filename> <receiver> - send a file to the specified user");
         System.out.println("###### NOTE:");
-        System.out.printf("###### The file you're planning to send must be in the \"%s\" directory.\n", FILE_TRANSFER_DIRECTORY);
+        System.out.printf("###### The file you're planning to send must be in the \"%s\" directory.\n", fileTransferManager.getFileTransferDirectory());
         System.out.println("###### When specifying the file for transmission, include only the name and extension");
         System.out.println("### !accept/reject - accept or decline the latest file transfer offered");
-        coloredPrint(ANSI_GRAY, "Planning to move that functionality to private message");
     }
 
     private void login(String username) {
         out.println("LOGIN " + wrapInJson("username", username.trim()));
         this.secureManager = new SecureManager(out);
-    }
-
-    private void leave() {
-        try {
-            out.println("LEAVE");
-            in.close();
-            out.close();
-            socket.close();
-            System.out.println("Bye bye!");
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private void create(String lobby) {
-        out.println("GAME_LAUNCH " + wrapInJson("lobby", lobby.trim()));
-        gameLobby = lobby.trim();
-    }
-
-    private void join(String lobby) {
-        out.println("GAME_JOIN " + wrapInJson("lobby", lobby.trim()));
-        gameLobby = lobby.trim();
-    }
-
-    private void guess(String guess) throws JsonProcessingException {
-        out.println("GAME_GUESS " + mapper.writeValueAsString(new GameGuess(gameLobby, Integer.parseInt(guess))));
-    }
-
-    private void direct(String data) throws JsonProcessingException {
-        out.println("PRIVATE " + mapper.writeValueAsString(textMessageFromCommand(data)));
-    }
-
-    private void secure(String data) throws JsonProcessingException {
-        secureManager.handleSendSecure(data);
     }
 
     private void list() {
@@ -204,118 +168,50 @@ public class Client {
         } else System.out.println("Invalid message format");
     }
 
+    private void direct(String data) throws JsonProcessingException {
+        out.println("PRIVATE " + mapper.writeValueAsString(textMessageFromCommand(data)));
+    }
+
+    private void create(String lobby) {
+        guessingGameManager.handleCreate(lobby);
+    }
+
+    private void join(String lobby) {
+        guessingGameManager.handleJoin(lobby);
+    }
+
+    private void guess(String guess) {
+        guessingGameManager.handleGuess(guess);
+    }
+
     private void file(String content) {
-        String[] params = content.split(" ", 2);
-        if (params.length != 2) {
-            coloredPrint(ANSI_RED, "Provide both the file name and the receiving user");
-            return;
-        }
-        String filename = params[0].trim();
-        String receiver = params[1].trim();
-        latestSelectedFile = new File(FILE_TRANSFER_DIRECTORY + filename);
-        if (!latestSelectedFile.exists()) {
-            coloredPrint(ANSI_MAGENTA, "FILE WITH NAME " + filename + " DOES NOT EXIST");
-            return;
-        }
-        String checksum;
+        fileTransferManager.handleSendFile(content);
+    }
+
+    private void showFiles() {
+        fileTransferManager.handleShowFilesInDirectory();
+    }
+
+    private void accept() {
+        fileTransferManager.handleAccept();
+    }
+
+    private void reject() {
+        fileTransferManager.handleReject();
+    }
+
+    private void secure(String data) {
+        secureManager.handleSendSecure(data);
+    }
+
+    private void leave() {
         try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            md.update(Files.readAllBytes(latestSelectedFile.toPath()));
-            byte[] digest = md.digest();
-            checksum = HexFormat.of().formatHex(digest).toLowerCase();
-            FileTransferRequest ftr = new FileTransferRequest(filename, receiver, "", UUID.randomUUID());
-            out.println("SEND_FILE " + mapper.writeValueAsString(ftr));
-            System.out.println("Initial request: " + ftr);
-        } catch (NoSuchAlgorithmException | IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private void accept() throws JsonProcessingException {
-        System.out.println("Last saved request " + latestFTR);
-        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(true, "this.username", latestFTR.sessionId())));
-        System.out.println("Initiating file transfer receiver side");
-        initFileTransfer(latestFTR.sessionId());
-    }
-
-    private void reject() throws JsonProcessingException {
-        out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(false, "this.username", latestFTR.sessionId())));
-    }
-
-    // -----------------------------------   UTILS   ------------------------------------------------
-    private void initFileTransfer(UUID sessionId, File file) {
-        try (Socket senderSocket = new Socket(SERVER_ADDRESS, FILE_TRANSFER_PORT)) {
-            OutputStream output = senderSocket.getOutputStream();
-            byte[] senderData = createByteArray('S', sessionId);
-            output.write(senderData);
-            try (FileInputStream fs = new FileInputStream(file)) {
-                fs.transferTo(output);
-            }
+            out.println("LEAVE");
+            socket.close();
+            System.out.println("Bye bye!");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    private void initFileTransfer(UUID sessionId) {
-        try (Socket receiverSocket = new Socket(SERVER_ADDRESS, FILE_TRANSFER_PORT)) {
-            OutputStream output = receiverSocket.getOutputStream();
-            InputStream input = receiverSocket.getInputStream();
-            System.out.println("SessionID: " + sessionId);
-            System.out.println("Length: " + sessionId.toString().length());
-            byte[] receiverData = createByteArray('R', sessionId);
-            System.out.println("Byte array " + Arrays.toString(receiverData));
-            output.write(receiverData);
-            output.flush();
-            String[] filename = latestFTR.filename().split(EXTENSION_SPLITTING_REGEXP);
-            System.out.println(latestFTR.filename());
-            System.out.println(Arrays.toString(filename));
-            File file = new File(FILE_TRANSFER_DIRECTORY + filename[0] + "_new." + filename[1]);
-            // socket is already closed at this point, so is the stream
-            try (FileOutputStream fo = new FileOutputStream(file)) {
-                input.transferTo(fo); // thus this input stream proves unusable and throws a Socket Closed exception
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        System.out.println("Finished the file transfer!");
-        // todo: verify checksum
-    }
-
-    private static byte[] convertUUIDToBytes(UUID uuid) {
-//        ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
-//        bb.putLong(uuid.getMostSignificantBits());
-//        bb.putLong(uuid.getLeastSignificantBits());
-//        return bb.array();
-        return uuid.toString().getBytes();
-    }
-
-    private byte[] createByteArray(char letter, UUID uuid) throws IOException {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        // Write Letter
-        outputStream.write((byte) letter);
-        // Write UUID
-        byte[] uuidBytes = convertUUIDToBytes(uuid);
-        outputStream.write(uuidBytes);
-        return outputStream.toByteArray();
-    }
-
-    private void showGameLeaderboard(String json) throws JsonProcessingException {
-        Leaderboard leaderboard = mapper.readValue(json, Leaderboard.class);
-        coloredPrint(ANSI_YELLOW, "Game in lobby " + leaderboard.lobby() + " has ended! \n --- Scoreboard ---");
-        int index = 2;
-
-        List<Entry<String, Long>> scores = new ArrayList<>(leaderboard.leaderboard().entrySet());
-        // sort the scores to get the quickest time on the first place
-        scores.sort(Entry.comparingByValue());
-
-        for (Entry<String, Long> score : scores) {
-            if (scores.indexOf(score) == 0)
-                rainbowPrint(index + ".) " + scores.get(0).getKey() + ": " + scores.get(0).getValue() + "ms");
-            coloredPrint(ANSI_YELLOW, index + ".) " + score.getKey() + ": " + score.getValue() + "ms");
-            index++;
-        }
-        System.out.println("------------------");
-        gameLobby = "";
     }
 
     private void disconnect(String json) throws IOException {
@@ -328,7 +224,6 @@ public class Client {
         System.out.println("You were disconnected from the server. " + disconnectionReason);
         socket.close();
     }
-
 
     // --------------------------   RECEIVED MESSAGE HANDLER   ---------------------------------------
 
@@ -365,28 +260,17 @@ public class Client {
                 coloredPrint(ANSI_CYAN, "[" + response.username() + "] : " + response.message());
             }
             case "PING" -> out.println("PONG");
-            case "GAME_LAUNCHED" ->
-                    coloredPrint(ANSI_YELLOW, "A new game is brewing in lobby '" + getPropertyFromJson(json, "lobby") + "'! Join in!");
-            case "GAME_START" ->
-                    coloredPrint(ANSI_YELLOW, "The game in lobby \"" + getPropertyFromJson(json, "lobby") + "\" elapsed!");
-            case "GAME_GUESSED" ->
-                    coloredPrint(ANSI_YELLOW, getPropertyFromJson(json, "username") + " has guessed the number!");
-            case "GAME_END" -> showGameLeaderboard(json);
-            case "GAME_FAIL" -> {
-                String lobby = getPropertyFromJson(json, "lobby");
-                coloredPrint(ANSI_MAGENTA, "The game at " + lobby + " had has ended, due to lack of players");
-            }
+            case "GAME_LAUNCHED" -> guessingGameManager.handleReceiveLaunched(json);
+            case "GAME_START" -> guessingGameManager.handleReceiveStart(json);
+            case "GAME_GUESSED" -> guessingGameManager.handleReceiveGuessed(json);
+            case "GAME_END" -> guessingGameManager.handleReceiveEnd(json);
+            case "GAME_FAIL" -> guessingGameManager.handleReceiveFailed(json);
             case "SECURE" -> secureManager.handleReceiveSecure(json);
             case "PUBLIC_KEY_REQ" -> secureManager.handlePublicKeyReq(json);
             case "PUBLIC_KEY_RES" -> secureManager.handlePublicKeyRes(json);
             case "SESSION_KEY" -> secureManager.handleSessionKey(json);
             case "SECURE_READY" -> secureManager.handleSecureReady(json);
-            case "TRANSFER_REQUEST" -> {
-                FileTransferRequest ftr = mapper.readValue(json, FileTransferRequest.class);
-                coloredPrint(ANSI_GREEN, "You are receiving an inquiry for file exchange from " + ftr.sender() + " (" + ftr.filename() + ")");
-                System.out.println("Received request " + ftr);
-                latestFTR = ftr;
-            }
+            case "TRANSFER_REQUEST" -> fileTransferManager.handleReceiveTransferRequest(json);
             case "PARSE_ERROR" -> coloredPrint(ANSI_MAGENTA, "Parse error occurred processing your message");
             default -> coloredPrint(ANSI_MAGENTA, "Unknown message type or command from the server");
         }
@@ -405,7 +289,6 @@ public class Client {
 
         try {
             if (response.status() == 711) {
-                System.out.println(response);
                 NotFound notFound = mapper.readValue((String) response.content(), NotFound.class);
                 message = String.format(message, notFound.resource(), notFound.content());
                 coloredPrint(ANSI_RED, message);
@@ -423,50 +306,29 @@ public class Client {
 
     private void successfulMessagesHandler(Response<?> response) {
         switch (response.to()) {
-            // the response.content() that is received at this point is an Object instance
-            // thus it can be anything. For that reason, casting is required when receiving
-            // any input. This is working on the fact that the client knows what type of
-            // command was received
+            /* SUCCESSFUL RESPONSES SOMETIMES TAKE A WILDCARD GENERIC TYPE, HOWEVER THE PROTOCOL SPECIFIES THE EXPECTED CONTENT TYPE
 
-            // case "COMMAND" -> System.out.println(((ArrayList<String>) response.content())
+             the response.content() that is received at this point is an Object instance
+             thus it can be anything. For that reason, casting is required when receiving
+             any input. This is working on the fact that the client knows what type of
+             command was received
 
+             case "COMMAND" -> System.out.println(((ArrayList<String>) response.content()) */
+
+            // general
             case "LOGIN" -> coloredPrint(ANSI_CYAN, "Logged in successfully!");
             case "LIST" -> System.out.println(response.content());
+            // game
+            case "GAME_LAUNCH" -> guessingGameManager.handleSuccessfulLaunch();
+            case "GAME_JOIN" -> guessingGameManager.handleSuccessfulJoin(response);
+            case "GAME_GUESS" -> guessingGameManager.handleSuccessfulGuess(response);
+            // file
             case "TRANSFER_RESPONSE" -> coloredPrint(ANSI_GREEN, "Your response was sent to the sender");
-            case "GAME_LAUNCH" -> coloredPrint(ANSI_YELLOW, "Game started!");
-            case "GAME_JOIN" -> {
-                coloredPrint(ANSI_YELLOW, "Joined the game at " + response.content());
-                gameLobby = (String) response.content();
-            }
-            case "GAME_GUESS" -> {
-                switch ((int) response.content()) {
-                    case -1 -> coloredPrint(ANSI_YELLOW, "Guess bigger!");
-                    case 0 -> coloredPrint(ANSI_YELLOW, "You have guessed the number!");
-                    case 1 -> coloredPrint(ANSI_YELLOW, "Guess lesser!");
-                }
-            }
-            case "SEND_FILE" -> {
-                if (response.content().equals("OK")) {
-                    coloredPrint(ANSI_GREEN, "Request sent to the user");
-                    return;
-                }
-                try {
-                    FileTransferResponse ftr = mapper.readValue((String) response.content(), FileTransferResponse.class);
-                    System.out.println(ftr);
-                    if (ftr.status()) {
-                        coloredPrint(ANSI_GREEN, ftr.sender() + " has ACCEPTED your file transfer inquiry! Preparing transmission...");
-                        System.out.println("Initiating file transfer senders side");
-                        initFileTransfer(ftr.sessionId(), latestSelectedFile);
-                    } else coloredPrint(ANSI_GREEN, ftr.sender() + " has REJECTED your file transfer inquiry.");
-                } catch (JsonProcessingException e) {
-                    coloredPrint(ANSI_RED, "Failed to parse the response to the file transfer response format");
-                }
-            }
+            case "SEND_FILE" -> fileTransferManager.handleResponseSendFile(response);
+            // unknown
             default ->
                     coloredPrint(ANSI_GRAY, "OK status received. Unknown destination of the response: " + response.to());
         }
     }
 
 }
-
-//todo: refactor game and transfer to separate managers, gonna make the code look so clean

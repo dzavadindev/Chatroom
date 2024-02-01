@@ -4,8 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import exceptions.UserNotFoundException;
-import features.file_transfer.FileTransfer;
-import features.guessing_game.GuessingGame;
+import features.FileTransfer;
+import features.GuessingGame;
 import messages.*;
 
 import java.io.*;
@@ -74,6 +74,7 @@ public class Server {
         private boolean alive = true, hasLoggedIn = false, inGame = false;
         public String username = "";
         private final List<FileTransferRequest> pendingFTRequests = new LinkedList<>(); // todo: maybe change to a map UUID:FileTransferRequest?
+
         public Connection(Socket allocatedSocket) throws IOException {
             this.allocatedSocket = allocatedSocket;
             this.out = new PrintWriter(allocatedSocket.getOutputStream(), true);
@@ -167,6 +168,7 @@ public class Server {
 
             String filename = getPropertyFromJson(json, "filename");
             String receiverName = getPropertyFromJson(json, "receiver");
+            String checksum = getPropertyFromJson(json, "checksum");
             UUID sessionId = UUID.fromString(getPropertyFromJson(json, "sessionId"));
 
             if (receiverName.equalsIgnoreCase(this.username)) {
@@ -176,7 +178,7 @@ public class Server {
 
             try {
                 Connection receiver = findUserByUsername(receiverName);
-                FileTransferRequest request = new FileTransferRequest(filename, receiver.username, this.username, sessionId);
+                FileTransferRequest request = new FileTransferRequest(filename, receiver.username, this.username, sessionId, checksum);
                 receiver.out.println("TRANSFER_REQUEST " + mapper.writeValueAsString(request));
                 receiver.addPendingFileTransferRequest(request);
                 sendResponse("SEND_FILE", 800, "OK");
