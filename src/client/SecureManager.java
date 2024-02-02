@@ -2,11 +2,11 @@ package client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import exceptions.InputArgumentMismatchException;
 import messages.KeyExchange;
 import messages.TextMessage;
 
 import javax.crypto.*;
-import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.PrintWriter;
 import java.security.*;
@@ -16,9 +16,8 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 
-import static colors.ANSIColors.ANSI_MAGENTA;
-import static colors.ANSIColors.coloredPrint;
-import static util.Util.textMessageFromCommand;
+import static colors.ANSIColors.*;
+import static util.Util.*;
 
 public class SecureManager {
 
@@ -27,7 +26,7 @@ public class SecureManager {
     private final PrivateKey privateKey;
     private final PrintWriter out;
     private String secureMessageBuffer = "";
-    private final Map<String, Identifier> usernameToIdentifier = new HashMap<>();
+    private final Map<String, SecretKey> usernameToSessionKey = new HashMap<>();
 
     // The constructor creates a pair unique per manager on init
     public SecureManager(PrintWriter out) {
@@ -43,106 +42,119 @@ public class SecureManager {
         }
     }
 
-    // -------------------------------   SECURE MESSAGE HANDLERS   ---------------------------------------------
+    // -------------------------------   MESSAGE HANDLERS   ---------------------------------------------
 
+    // STEP 1
     public void handleSendSecure(String data) {
         try {
             TextMessage tm = textMessageFromCommand(data);
-            Identifier identifier = usernameToIdentifier.get(tm.username());
-            if (identifier == null || identifier.getSessionKey() == null) {
+            // check if the mapping is present already, if not make one.
+            SecretKey sessionKey = usernameToSessionKey.get(tm.username());
+            // the session key is not set up
+            if (sessionKey == null) {
+                // save message for when the session key is set up
                 secureMessageBuffer = tm.message();
-                usernameToIdentifier.putIfAbsent(tm.username(), new Identifier());
                 out.println("PUBLIC_KEY_REQ " + mapper.writeValueAsString(new KeyExchange(tm.username(), encodeKey(publicKey))));
                 return;
             }
-            String encryptedMessage = aesEncrypt(tm.message(), identifier.sessionKey, generateIv());
+            // the session key is set up, encrypt your message with it
+            String encryptedMessage = aesEncrypt(tm.message(), sessionKey);
             out.println("SECURE " + mapper.writeValueAsString(new TextMessage(tm.username(), encryptedMessage)));
+        } catch (InputArgumentMismatchException e) {
+            System.err.println(e.getMessage());
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
     }
 
+    // ------------------------------- MESSAGE RECEIVED HANDLER   --------------------------------------
+
+    // STEP 2 SK PRESENT | LAST STEP |
     public void handleReceiveSecure(String json) throws JsonProcessingException {
+        // received a SECURE message
+        // session key may or may not be set at this point
+        // this client does not allow to send messages to be send when the mapping is empty though
+        /*fixme: perhaps the receiving user might want to let the initiator
+           know if they dont have an established SK, but imma just say "nah
+           bro, no can do"*/
         TextMessage response = mapper.readValue(json, TextMessage.class);
-        String decryptedMessage = aesDecrypt(response.message(),
-                usernameToIdentifier.get(response.username()).sessionKey,
-                generateIv()); // todo: no need for an IV mate
-        coloredPrint(ANSI_MAGENTA, "[" + response.username() + "] : " + decryptedMessage);
+        SecretKey sessionKey = usernameToSessionKey.get(response.username());
+        if (sessionKey != null) {
+            String decryptedMessage = aesDecrypt(response.message(), sessionKey);
+            coloredPrint(ANSI_BLUE, "[" + response.username() + "] : " + decryptedMessage);
+        } else
+            coloredPrint(ANSI_RED, response.username() + " tried to send you a secure message but you can't read it. Encrypted without means to decrypt it");
     }
 
-    public void handlePublicKeyReq(String json) {
-        try {
-            KeyExchange ke = mapper.readValue(json, KeyExchange.class);
-            Identifier identifier = usernameToIdentifier.get(ke.username());
-            if (identifier == null || identifier.getPublicKey() == null) {
-                usernameToIdentifier.putIfAbsent(ke.username(), new Identifier(decodePublicKey(ke)));
-                out.println("PUBLIC_KEY_RES " + new KeyExchange(ke.username(), encodeKey(publicKey)));
-            }
-            // todo: maybe a handler for if there is an already existing public key association
-
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
-        }
+    // STEP 2 SK NOT PRESENT
+    public void handleReceivePublicKeyReq(String json) throws JsonProcessingException {
+        // request for a K+ received, sending it to the init
+        out.println("PUBLIC_KEY_RES " +
+                mapper.writeValueAsString(
+                        new KeyExchange(getPropertyFromJson(json, "username"),
+                                encodeKey(publicKey))
+                )
+        );
     }
 
-    public void handlePublicKeyRes(String json) {
-//        try {
-//            KeyExchange ke = mapper.readValue(json, KeyExchange.class);
-//            Identifier identifier = usernameToIdentifier.get(ke.username());
-//            if (identifier == null || identifier.getPublicKey() == null) {
-//                usernameToIdentifier.putIfAbsent(ke.username(), new Identifier());
-//                SecretKey sessionKey = generateKey(256);
-//                usernameToIdentifier.get(ke.username()).setSessionKey(sessionKey); //todo: I don't know if this is a reference to mapped object or just the value
-//                String encryptedSessionKey = rsaEncrypt(sessionKey, ke.key());
-//                // todo: should I use encryption with IV, or is it not necessary, as we are just trying to prevent messages from being understood in transit
-//                out.println("SESSION_KEY " + new KeyExchange("", encryptedSessionKey));/*todo: here encrypted SK*/
-//            }
-//        } catch (NoSuchPaddingException | IllegalBlockSizeException | NoSuchAlgorithmException |
-//                 BadPaddingException | InvalidKeyException | JsonProcessingException e) {
-//            throw new RuntimeException(e);
-//        }
+    // STEP 3
+    public void handleReceivePublicKeyRes(String json) throws JsonProcessingException {
+        KeyExchange ke = mapper.readValue(json, KeyExchange.class);
+        PublicKey pk = decodePublicKey(ke.key());
+        String sessionKey = rsaEncrypt(generateKey(256), pk);
+        out.println("SESSION_KEY " + mapper.writeValueAsString(new KeyExchange(ke.username(), sessionKey)));
     }
 
-    public void handleSessionKey(String json) {
-
+    // STEP 4
+    public void handleReceiveSessionKey(String json) throws JsonProcessingException {
+        KeyExchange ke = mapper.readValue(json, KeyExchange.class);
+        SecretKey sessionKey = rsaDecrypt(ke.key(), privateKey);
+        usernameToSessionKey.put(ke.username(), sessionKey);
+        out.println("SECURE_READY " + wrapInJson(ke.username(), "username"));
     }
 
-    public void handleSecureReady(String json) {
-
+    // STEP 5
+    public void handleReceiveSecureReady(String json) throws JsonProcessingException {
+        handleSendSecure(mapper.writeValueAsString(new TextMessage(getPropertyFromJson(json, "username"), secureMessageBuffer)));
+        secureMessageBuffer = "";
     }
 
-    // -----------------------------------   ENCRYPTION UTILS   ------------------------------------------------
+    // --------------------------------   ENCRYPTION UTILS   -------------------------------------------
 
-    private String aesEncrypt(String input, SecretKey key, IvParameterSpec iv) {
-        // honestly, I got so lost with all different AES encryption types I just chose the same as Baeldung uses.
-        // It seems that every encryption type has a unique use case, and some are actually encoding with sprinkles on top (?) (ECB)
-        // I'll surely take a better look some time later, but Im too washed to try dig into it now
+    private String aesEncrypt(String input, SecretKey key) {
+        // I am using ECB (Electronic CodeBook), as all I want to do is to hide the contents
+        // of the message from the server side. My concern is no necessarily security, but
+        // rather privacy over admin supervision. Surely, if issues with messages getting
+        // brute-forced arises, it would be smart to change to CBC and include the RSA
+        // encrypted Init Vector along with the key itself. This is not a commercial project though,
+        // so I don't care much
         // https://www.baeldung.com/java-aes-encryption-decryption
         try {
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-            cipher.init(Cipher.ENCRYPT_MODE, key, iv);
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, key);
             byte[] cipherText = cipher.doFinal(input.getBytes());
             return Base64.getEncoder()
                     .encodeToString(cipherText);
-        } catch (NoSuchPaddingException | NoSuchAlgorithmException | InvalidAlgorithmParameterException |
+        } catch (NoSuchPaddingException | NoSuchAlgorithmException |
                  InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
             throw new RuntimeException(e);
         }
     }
 
-    private String aesDecrypt(String cipherText, SecretKey key, IvParameterSpec iv) {
+    private String aesDecrypt(String cipherText, SecretKey key) {
         try {
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-            cipher.init(Cipher.DECRYPT_MODE, key, iv);
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, key);
             byte[] plainText = cipher.doFinal(Base64.getDecoder()
                     .decode(cipherText));
             return new String(plainText);
-        } catch (NoSuchPaddingException | NoSuchAlgorithmException | InvalidAlgorithmParameterException |
+        } catch (NoSuchPaddingException | NoSuchAlgorithmException |
                  InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
             throw new RuntimeException(e);
         }
     }
 
+    // Returns string representation of the encrypted SK already.
     private String rsaEncrypt(SecretKey secretKey, PublicKey publicKey) {
         try {
             Cipher encryptCipher = Cipher.getInstance("RSA");
@@ -155,7 +167,7 @@ public class SecureManager {
         }
     }
 
-    private SecretKey rsaDectypt(String encryptedKey, PrivateKey privateKey) {
+    private SecretKey rsaDecrypt(String encryptedKey, PrivateKey privateKey) {
         try {
             Cipher decryptCipher = Cipher.getInstance("RSA");
             decryptCipher.init(Cipher.DECRYPT_MODE, privateKey);
@@ -171,9 +183,9 @@ public class SecureManager {
         return Base64.getEncoder().encodeToString(key.getEncoded());
     }
 
-    private PublicKey decodePublicKey(KeyExchange keyExchange) {
+    private PublicKey decodePublicKey(String key) {
         try {
-            byte[] decodedKey = Base64.getDecoder().decode(keyExchange.key());
+            byte[] decodedKey = Base64.getDecoder().decode(key);
             KeyFactory keyFactory = KeyFactory.getInstance("RSA");
             X509EncodedKeySpec publicKeySpec = new X509EncodedKeySpec(decodedKey);
             return keyFactory.generatePublic(publicKeySpec);
@@ -182,7 +194,7 @@ public class SecureManager {
         }
     }
 
-    private static SecretKey generateKey(int n) { // bit size : 128, 192, 256
+    private SecretKey generateKey(int n) { // bit size : 128, 192, 256
         try {
             KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
             keyGenerator.init(n);
@@ -191,42 +203,4 @@ public class SecureManager {
             throw new RuntimeException(e);
         }
     }
-
-    private static IvParameterSpec generateIv() {
-        byte[] iv = new byte[16];
-        new SecureRandom().nextBytes(iv);
-        return new IvParameterSpec(iv);
-    }
-
-    private static class Identifier {
-        private PublicKey publicKey;
-        private SecretKey sessionKey;
-
-        public Identifier() {
-            this.publicKey = null;
-            this.sessionKey = null;
-        }
-
-        public Identifier(PublicKey publicKey) {
-            this.publicKey = publicKey;
-            this.sessionKey = null;
-        }
-
-        public PublicKey getPublicKey() {
-            return publicKey;
-        }
-
-        public SecretKey getSessionKey() {
-            return sessionKey;
-        }
-
-        public void setPublicKey(PublicKey publicKey) {
-            this.publicKey = publicKey;
-        }
-
-        public void setSessionKey(SecretKey sessionKey) {
-            this.sessionKey = sessionKey;
-        }
-    }
-
 }

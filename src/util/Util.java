@@ -3,6 +3,7 @@ package util;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import exceptions.InputArgumentMismatchException;
 import messages.TextMessage;
 
 import static colors.ANSIColors.ANSI_RED;
@@ -22,11 +23,11 @@ public class Util {
         return node.path(property).asText();
     }
 
-    public static TextMessage textMessageFromCommand(String data) {
+    public static TextMessage textMessageFromCommand(String data) throws InputArgumentMismatchException {
         String[] tuple = data.split(" ", 2);
         if (tuple.length < 2 || tuple.length > 3) {
             coloredPrint(ANSI_RED, "Provide both username and the message");
-            throw new IllegalArgumentException("Provided string has more than 2 parts to it. Can't create TextMessage object");
+            throw new InputArgumentMismatchException(tuple.length);
         }
         String receiver = tuple[0].trim();
         String message = tuple[1].trim();

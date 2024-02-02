@@ -3,6 +3,7 @@ package client;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import exceptions.InputArgumentMismatchException;
 import messages.*;
 
 import javax.crypto.*;
@@ -169,7 +170,11 @@ public class Client {
     }
 
     private void direct(String data) throws JsonProcessingException {
-        out.println("PRIVATE " + mapper.writeValueAsString(textMessageFromCommand(data)));
+        try {
+            out.println("PRIVATE " + mapper.writeValueAsString(textMessageFromCommand(data)));
+        } catch (InputArgumentMismatchException e) {
+            System.err.println(e.getMessage());
+        }
     }
 
     private void create(String lobby) {
@@ -232,6 +237,8 @@ public class Client {
         String type = messageParts[0];
         String json = messageParts.length == 2 ? messageParts[1] : "";
 
+        System.out.println(message);
+
         switch (type) {
             case "RESPONSE" -> {
                 JavaType javaType = mapper.getTypeFactory().constructParametricType(Response.class, Object.class);
@@ -266,10 +273,10 @@ public class Client {
             case "GAME_END" -> guessingGameManager.handleReceiveEnd(json);
             case "GAME_FAIL" -> guessingGameManager.handleReceiveFailed(json);
             case "SECURE" -> secureManager.handleReceiveSecure(json);
-            case "PUBLIC_KEY_REQ" -> secureManager.handlePublicKeyReq(json);
-            case "PUBLIC_KEY_RES" -> secureManager.handlePublicKeyRes(json);
-            case "SESSION_KEY" -> secureManager.handleSessionKey(json);
-            case "SECURE_READY" -> secureManager.handleSecureReady(json);
+            case "PUBLIC_KEY_REQ" -> secureManager.handleReceivePublicKeyReq(json);
+            case "PUBLIC_KEY_RES" -> secureManager.handleReceivePublicKeyRes(json);
+            case "SESSION_KEY" -> secureManager.handleReceiveSessionKey(json);
+            case "SECURE_READY" -> secureManager.handleReceiveSecureReady(json);
             case "TRANSFER_REQUEST" -> fileTransferManager.handleReceiveTransferRequest(json);
             case "PARSE_ERROR" -> coloredPrint(ANSI_MAGENTA, "Parse error occurred processing your message");
             default -> coloredPrint(ANSI_MAGENTA, "Unknown message type or command from the server");
