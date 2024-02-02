@@ -236,9 +236,7 @@ public class Client {
         String[] messageParts = message.split(" ", 2);
         String type = messageParts[0];
         String json = messageParts.length == 2 ? messageParts[1] : "";
-
-        System.out.println(message);
-
+        
         switch (type) {
             case "RESPONSE" -> {
                 JavaType javaType = mapper.getTypeFactory().constructParametricType(Response.class, Object.class);

@@ -356,16 +356,23 @@ public class Server {
                 sendResponse("SECURE", 822, "ERROR");
                 return;
             }
+
+            try {
+                findUserByUsername(receiverName).out.println("SECURE " + mapper.writeValueAsString(new TextMessage(this.username, message)));
+            } catch (UserNotFoundException e) {
+                NotFound notFound = new NotFound("user", receiverName);
+                sendResponse("SECURE", 711, mapper.writeValueAsString(notFound));
+            }
         }
 
         // init to receiver
         private void handlePublicKeyReq(String json) throws JsonProcessingException {
-            KeyExchange ke = mapper.readValue(json, KeyExchange.class);
+            String receiver = getPropertyFromJson(json, "username");
             try {
-                findUserByUsername(ke.username()).out.println("PUBLIC_KEY_REQ "
-                        + mapper.writeValueAsString(new KeyExchange(this.username, ke.key())));
+                findUserByUsername(receiver).out.println("PUBLIC_KEY_REQ " +
+                        wrapInJson("username", this.username));
             } catch (UserNotFoundException e) {
-                String notFoundJson = mapper.writeValueAsString(new NotFound("user", ke.username()));
+                String notFoundJson = mapper.writeValueAsString(new NotFound("user", receiver));
                 sendResponse("PUBLIC_KEY_REQ", 711, notFoundJson);
             }
         }
@@ -398,7 +405,7 @@ public class Server {
         private void handleSecureReady(String json) throws JsonProcessingException {
             try {
                 String username = getPropertyFromJson(json, "username");
-                findUserByUsername(username).out.println("SECURE_READY " + wrapInJson("username", username));
+                findUserByUsername(username).out.println("SECURE_READY " + wrapInJson("username", this.username));
             } catch (UserNotFoundException e) {
                 throw new RuntimeException(e);
             }

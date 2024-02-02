@@ -44,7 +44,7 @@ public class SecureManager {
 
     // -------------------------------   MESSAGE HANDLERS   ---------------------------------------------
 
-    // STEP 1
+    // STEP 1 SENDER SIDE
     public void handleSendSecure(String data) {
         try {
             TextMessage tm = textMessageFromCommand(data);
@@ -54,7 +54,7 @@ public class SecureManager {
             if (sessionKey == null) {
                 // save message for when the session key is set up
                 secureMessageBuffer = tm.message();
-                out.println("PUBLIC_KEY_REQ " + mapper.writeValueAsString(new KeyExchange(tm.username(), encodeKey(publicKey))));
+                out.println("PUBLIC_KEY_REQ " + wrapInJson("username", tm.username()));
                 return;
             }
             // the session key is set up, encrypt your message with it
@@ -69,7 +69,7 @@ public class SecureManager {
 
     // ------------------------------- MESSAGE RECEIVED HANDLER   --------------------------------------
 
-    // STEP 2 SK PRESENT | LAST STEP |
+    // STEP 2 | SK PRESENT | LAST STEP | RECEIVER SIDE
     public void handleReceiveSecure(String json) throws JsonProcessingException {
         // received a SECURE message
         // session key may or may not be set at this point
@@ -86,7 +86,7 @@ public class SecureManager {
             coloredPrint(ANSI_RED, response.username() + " tried to send you a secure message but you can't read it. Encrypted without means to decrypt it");
     }
 
-    // STEP 2 SK NOT PRESENT
+    // STEP 2 | SK NOT PRESENT | RECEIVER SIDE
     public void handleReceivePublicKeyReq(String json) throws JsonProcessingException {
         // request for a K+ received, sending it to the init
         out.println("PUBLIC_KEY_RES " +
@@ -97,25 +97,27 @@ public class SecureManager {
         );
     }
 
-    // STEP 3
+    // STEP 3 | SENDER SIDE
     public void handleReceivePublicKeyRes(String json) throws JsonProcessingException {
         KeyExchange ke = mapper.readValue(json, KeyExchange.class);
         PublicKey pk = decodePublicKey(ke.key());
-        String sessionKey = rsaEncrypt(generateKey(256), pk);
-        out.println("SESSION_KEY " + mapper.writeValueAsString(new KeyExchange(ke.username(), sessionKey)));
+        SecretKey sessionKey = generateKey(256);
+        usernameToSessionKey.put(ke.username(), sessionKey);
+        String sessionKeyEncrypted = rsaEncrypt(sessionKey, pk);
+        out.println("SESSION_KEY " + mapper.writeValueAsString(new KeyExchange(ke.username(), sessionKeyEncrypted)));
     }
 
-    // STEP 4
+    // STEP 4 | RECEIVER SIDE
     public void handleReceiveSessionKey(String json) throws JsonProcessingException {
         KeyExchange ke = mapper.readValue(json, KeyExchange.class);
         SecretKey sessionKey = rsaDecrypt(ke.key(), privateKey);
         usernameToSessionKey.put(ke.username(), sessionKey);
-        out.println("SECURE_READY " + wrapInJson(ke.username(), "username"));
+        out.println("SECURE_READY " + wrapInJson("username", ke.username()));
     }
 
-    // STEP 5
+    // STEP 5 | SENDER SIDE
     public void handleReceiveSecureReady(String json) throws JsonProcessingException {
-        handleSendSecure(mapper.writeValueAsString(new TextMessage(getPropertyFromJson(json, "username"), secureMessageBuffer)));
+        handleSendSecure(String.format("%s %s", getPropertyFromJson(json, "username"), secureMessageBuffer));
         secureMessageBuffer = "";
     }
 
