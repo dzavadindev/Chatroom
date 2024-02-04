@@ -72,7 +72,7 @@ public class GuessingGame implements Runnable {
                 player.sendResponse("GAME_JOIN", 800, lobbyName);
                 return true;
             } else {
-                player.sendResponse("GAME_JOIN", 857, lobbyName);
+                player.sendResponse("GAME_JOIN", 858, lobbyName);
                 return false;
             }
         } catch (JsonProcessingException e) {

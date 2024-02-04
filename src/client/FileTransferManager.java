@@ -43,6 +43,10 @@ public class FileTransferManager {
 
     public void handleAccept() {
         try {
+            if (latestFTR == null) {
+                System.out.println("Nothing to approve");
+                return;
+            }
             out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(true, "this.username", latestFTR.sessionId())));
             System.out.println("Exchange initiated");
             initFileTransfer(latestFTR.sessionId());
@@ -53,6 +57,10 @@ public class FileTransferManager {
 
     public void handleReject() {
         try {
+            if (latestFTR == null) {
+                System.out.println("Nothing to reject");
+                return;
+            }
             out.println("TRANSFER_RESPONSE " + mapper.writeValueAsString(new FileTransferResponse(false, "this.username", latestFTR.sessionId())));
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
