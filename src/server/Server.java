@@ -52,7 +52,7 @@ public class Server {
     private void startServer(int port) {
         System.out.println("Server now running on port " + port);
         // File transferring server section, on different port
-        new Thread(new FileTransfer(FILE_TRANSFER_PORT)).start();
+        new Thread(new FileTransfer(FILE_TRANSFER_PORT), "FileTransferSector").start();
         // Handle connections for protocol messages
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             while (true) {
@@ -106,26 +106,6 @@ public class Server {
             String type = messageParts[0];
             String json = messageParts.length == 2 ? messageParts[1] : "";
 
-            if (type.contains("GAME")) {
-                if (type.equalsIgnoreCase("GAME_LAUNCH")) {
-                    handleGameLaunch(json);
-                    return;
-                }
-                String lobbyName = getPropertyFromJson(json, "lobby");
-                GuessingGame game = activeGames.get(lobbyName);
-
-                if (game != null) {
-                    switch (type) {
-                        case "GAME_JOIN" -> handleGameJoin(game);
-                        case "GAME_GUESS" -> handleGameGuess(game, json);
-                    }
-                } else {
-                    String notFoundJson = mapper.writeValueAsString(new NotFound("game", lobbyName));
-                    sendResponse(type, 711, notFoundJson);
-                }
-                return;
-            }
-
             try {
                 switch (type) {
                     case "PONG" -> handleHeartbeat();
@@ -133,6 +113,9 @@ public class Server {
                     case "BROADCAST" -> handleBroadcast(json);
                     case "PRIVATE" -> handlePrivate(json);
                     case "LIST" -> handleList();
+                    case "GAME_LAUNCH" -> handleGameLaunch(json);
+                    case "GAME_JOIN" -> handleGameJoin(json);
+                    case "GAME_GUESS" -> handleGameGuess(json);
                     case "SEND_FILE" -> handleTransferRequest(json);
                     case "TRANSFER_RESPONSE" -> handleTransferResponse(json);
                     case "PUBLIC_KEY_REQ" -> handlePublicKeyReq(json);
@@ -210,7 +193,7 @@ public class Server {
 
             if (username.matches(USER_NAME_REGEX)) {
                 this.username = username;
-                new Thread(new Heartbeat()).start();
+                new Thread(new Heartbeat(), this.username + "Heartbeat").start();
                 sendResponse("LOGIN", 800, "OK");
                 users.forEach(user -> {
                     try {
@@ -317,9 +300,9 @@ public class Server {
                 return;
             }
 
-            GuessingGame newGame = new GuessingGame(lobbyName, this);
+            GuessingGame newGame = new GuessingGame(lobbyName, this, () -> activeGames.remove(lobbyName));
             inGame = true;
-            new Thread(newGame).start();
+            new Thread(newGame, "Game_" + lobbyName).start();
             sendResponse("GAME_LAUNCH", 800, "OK");
             activeGames.put(lobbyName, newGame);
             users.stream()
@@ -327,8 +310,10 @@ public class Server {
                     .forEach(user -> user.out.println("GAME_LAUNCHED " + wrapInJson("lobby", lobbyName)));
         }
 
-        private void handleGameJoin(GuessingGame game) throws JsonProcessingException {
+        private void handleGameJoin(String json) throws JsonProcessingException {
             if (isNotLoggedIn()) return;
+            GuessingGame game = getGameByLobbyName("GAME_JOIN", json);
+            if (game == null) return;
             if (inGame) {
                 sendResponse("GAME_JOIN", 855, "ERROR");
                 return;
@@ -337,12 +322,14 @@ public class Server {
                 inGame = true;
         }
 
-        private void handleGameGuess(GuessingGame game, String json) throws JsonProcessingException {
+        private void handleGameGuess(String json) throws JsonProcessingException {
             if (isNotLoggedIn()) return;
             if (!inGame) {
                 sendResponse("GAME_GUESS", 852, "ERROR");
                 return;
             }
+            GuessingGame game = getGameByLobbyName("GAME_GUESS", json);
+            if (game == null) return;
             try {
                 int guess = Integer.parseInt(getPropertyFromJson(json, "guess"));
                 game.handleGameGuess(this, guess);
@@ -421,6 +408,16 @@ public class Server {
         }
 
         // -----------------------------------   UTILS   ------------------------------------------------
+
+        private GuessingGame getGameByLobbyName(String command, String json) throws JsonProcessingException {
+            String lobbyName = getPropertyFromJson(json, "lobby");
+            GuessingGame game = activeGames.get(lobbyName);
+            if (game == null) {
+                String notFoundJson = mapper.writeValueAsString(new NotFound("game", lobbyName));
+                sendResponse(command, 711, notFoundJson);
+                return null;
+            } else return game;
+        }
 
         private Connection findUserByUsername(String username) throws UserNotFoundException {
             Connection receiver = users.stream().filter(user -> user.username.equals(username)).findAny().orElse(null);

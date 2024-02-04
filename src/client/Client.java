@@ -237,8 +237,6 @@ public class Client {
         String type = messageParts[0];
         String json = messageParts.length == 2 ? messageParts[1] : "";
 
-        System.out.println(message);
-
         switch (type) {
             case "RESPONSE" -> {
                 JavaType javaType = mapper.getTypeFactory().constructParametricType(Response.class, Object.class);
@@ -324,6 +322,8 @@ public class Client {
             // general
             case "LOGIN" -> coloredPrint(ANSI_CYAN, "Logged in successfully!");
             case "LIST" -> System.out.println(response.content());
+            case "BROADCAST" -> { /*NOOP*/ } // There is nothing useful to signify if received OK from server at this point.
+            case "PRIVATE" -> { /*NOOP*/ } // Maybe "received" could have been a thing, but I don't want to amke the CLI messy
             // game
             case "GAME_LAUNCH" -> guessingGameManager.handleSuccessfulLaunch();
             case "GAME_JOIN" -> guessingGameManager.handleSuccessfulJoin(response);

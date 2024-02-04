@@ -77,6 +77,8 @@ public class FileTransfer implements Runnable {
                 if (session.receiver != null && session.sender != null) {
                     System.out.println("Starting transfer");
                     session.sender.in.transferTo(session.receiver.out);
+                    session.receiver.in.close();
+                    session.sender.out.close();
                 }
 
             } catch (IOException e) {

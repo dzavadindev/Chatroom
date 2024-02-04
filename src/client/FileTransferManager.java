@@ -144,6 +144,7 @@ public class FileTransferManager {
             try (FileInputStream fs = new FileInputStream(file)) {
                 fs.transferTo(output);
             }
+            coloredPrint(ANSI_YELLOW, "Finished sending your file!");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -163,6 +164,8 @@ public class FileTransferManager {
 
             try (FileOutputStream fo = new FileOutputStream(file)) {
                 input.transferTo(fo);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
             }
 
             System.out.println("Finished the file transfer!");

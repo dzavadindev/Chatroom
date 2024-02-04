@@ -44,6 +44,8 @@ public class GuessingGameManager {
             out.println("GAME_GUESS " + mapper.writeValueAsString(new GameGuess(gameLobby, Integer.parseInt(guess))));
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
+        } catch (NumberFormatException e) {
+            System.err.println("Please enter a number");
         }
     }
 
@@ -101,6 +103,7 @@ public class GuessingGameManager {
         try {
             String lobby = getPropertyFromJson(json, "lobby");
             coloredPrint(ANSI_MAGENTA, "The game at " + lobby + " had has ended, due to lack of players");
+            gameLobby = "";
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }

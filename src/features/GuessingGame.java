@@ -17,8 +17,9 @@ public class GuessingGame implements Runnable {
 
     private final Set<Connection> players = new HashSet<>();
     private final Map<String, Long> leaderboard = new HashMap<>();
-    private long startTime;
     private final ObjectMapper mapper = new ObjectMapper();
+    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+    private final Runnable shutdown;
 
 
     // -----------------------------------   CONSTANTS   ------------------------------------------------
@@ -28,19 +29,19 @@ public class GuessingGame implements Runnable {
     private final int GAME_UPPER_BOUND = 50;
     private final int GAME_LOWER_BOUND = 1;
 
-    // -----------------------------------   CONFIG   ------------------------------------------------
-
+    // -----------------------------------   STATE   ------------------------------------------------
+    private long startTime;
     private final int answer;
     private final String lobbyName;
     private GameState gameState = GameState.COLLECTION;
     private int playersGuessed = 0;
 
 
-    public GuessingGame(String lobbyName, Connection initiator) {
+    public GuessingGame(String lobbyName, Connection initiator, Runnable shutdown) {
         players.add(initiator);
+        this.shutdown = shutdown;
         this.answer = (new Random()).nextInt(GAME_LOWER_BOUND, GAME_UPPER_BOUND + 1);
         this.lobbyName = lobbyName;
-
     }
 
 //     Potential expansion of configurable upper and lower bounds of the game
@@ -53,8 +54,6 @@ public class GuessingGame implements Runnable {
 
     @Override
     public void run() {
-        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-        // collection period is short, thus seconds
         executor.schedule(new CollectionPeriod(), COLLECTION_PERIOD, TimeUnit.SECONDS);
         // the game itself is longer, and because both tasks are being scheduled now
         // the game timer will be equal the collection period + the game time itself
@@ -140,11 +139,12 @@ public class GuessingGame implements Runnable {
             if (players.size() == 1) {
                 notifyEveryone("GAME_FAIL " + wrapInJson("lobby", lobbyName));
                 new EndGame(false).run();
+                return;
             }
             System.out.println("Started the game at '" + lobbyName + "', answer is " + answer);
             System.out.println("Players: " + players);
             for (Connection player : players) {
-                leaderboard.put(player.username, (long) GAME_TIMER);
+                leaderboard.put(player.username, (long) GAME_TIMER * 1000); // Because executor uses seconds, and I display ms
                 player.sendMessageToClient("GAME_START " + wrapInJson("lobby", lobbyName));
             }
             gameState = GameState.ELAPSED;
@@ -168,7 +168,17 @@ public class GuessingGame implements Runnable {
                     notifyEveryone("GAME_END " + mapper.writeValueAsString(new Leaderboard(lobbyName, leaderboard)));
                 }
                 players.forEach(Connection::leaveGame);
-                Thread.currentThread().interrupt();
+
+                // Interrupting a thread group is apparently too little to stop an executor
+                // from firing tasks, so we also manually terminate the executor.
+                //
+                // Although even `shutdownNow` description says, quote, "For example,
+                // typical implementations will cancel via Thread.interrupt, so any
+                // task that fails to respond to interrupts may never terminate."
+
+                shutdown.run(); // remove game from active
+                executor.shutdownNow(); // try stop scheduled executor tasks (another GAME_END)
+                Thread.currentThread().getThreadGroup().interrupt(); // kill the game thread
             } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
             }
