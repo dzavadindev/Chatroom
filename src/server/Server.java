@@ -30,7 +30,7 @@ public class Server {
     private final String LOBBY_NAME_REGEX = "^[a-zA-Z0-9-_]+$"; // Name validity
     private final String USER_NAME_REGEX = "^[a-zA-Z0-9-_]{3,14}$"; // Name validity
     private final int FILE_TRANSFER_PORT = 1338; // Port for file transfer thread
-    private final long HEARTBEAT_REACTION = 2; // Heartbeat Executor is working with seconds
+    private final long HEARTBEAT_REACTION = 3; // Heartbeat Executor is working with seconds
     private final long HEARTBEAT_PERIOD = 10; // Heartbeat Executor is working with seconds
 
     // -----------------------------------   CONFIG   ------------------------------------------------
@@ -173,19 +173,24 @@ public class Server {
                 String notFoundJson = mapper.writeValueAsString(new NotFound("receiver", receiverName));
                 sendResponse("PRIVATE", 711, notFoundJson);
             }
+
+            sendResponse("PRIVATE", 800, "OK");
         }
 
         private void handleBroadcast(String json) throws JsonProcessingException {
             if (isNotLoggedIn()) return;
 
             String message = getPropertyFromJson(json, "message");
-            users.stream().filter(user -> !user.username.equals(this.username)).forEach(user -> {
-                try {
-                    user.out.println("BROADCAST " + mapper.writeValueAsString(new TextMessage(this.username, message)));
-                } catch (JsonProcessingException e) {
-                    throw new RuntimeException(e);
-                }
-            });
+            users.stream()
+                    .filter(user -> !user.username.equals(this.username))
+                    .forEach(user -> {
+                        try {
+                            user.out.println("BROADCAST " + mapper.writeValueAsString(new TextMessage(this.username, message)));
+                        } catch (JsonProcessingException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+            sendResponse("BROADCAST", 800, "OK");
         }
 
         private void handleLogin(String json) throws JsonProcessingException {
@@ -303,6 +308,10 @@ public class Server {
             if (isNotLoggedIn()) return;
 
             String lobbyName = getPropertyFromJson(json, "lobby");
+            if (activeGames.containsKey(lobbyName)) {
+                sendResponse("GAME_LAUNCH", 857, lobbyName);
+                return;
+            }
             if (!lobbyName.matches(LOBBY_NAME_REGEX)) {
                 sendResponse("GAME_LAUNCH", 850, lobbyName);
                 return;

@@ -50,8 +50,8 @@ public class Client {
             // With "in" I am able to read the input stream (server messages) into the application currently running
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-            guessingGameManager = new GuessingGameManager(out, in);
-            fileTransferManager = new FileTransferManager(out, in, address);
+            guessingGameManager = new GuessingGameManager(out);
+            fileTransferManager = new FileTransferManager(out, address);
 
             System.out.println("Type \"!help\" to receive the list of commands");
             startClient();
@@ -236,7 +236,9 @@ public class Client {
         String[] messageParts = message.split(" ", 2);
         String type = messageParts[0];
         String json = messageParts.length == 2 ? messageParts[1] : "";
-        
+
+        System.out.println(message);
+
         switch (type) {
             case "RESPONSE" -> {
                 JavaType javaType = mapper.getTypeFactory().constructParametricType(Response.class, Object.class);
@@ -319,7 +321,6 @@ public class Client {
              command was received
 
              case "COMMAND" -> System.out.println(((ArrayList<String>) response.content()) */
-
             // general
             case "LOGIN" -> coloredPrint(ANSI_CYAN, "Logged in successfully!");
             case "LIST" -> System.out.println(response.content());
@@ -331,8 +332,7 @@ public class Client {
             case "TRANSFER_RESPONSE" -> coloredPrint(ANSI_GREEN, "Your response was sent to the sender");
             case "SEND_FILE" -> fileTransferManager.handleResponseSendFile(response);
             // unknown
-            default ->
-                    coloredPrint(ANSI_GRAY, "OK status received. Unknown destination of the response: " + response.to());
+            default -> System.out.println("OK status received. Unknown destination of the response: " + response.to());
         }
     }
 

@@ -6,7 +6,6 @@ import messages.GameGuess;
 import messages.Leaderboard;
 import messages.Response;
 
-import java.io.BufferedReader;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,16 +16,14 @@ import static util.Util.*;
 
 public class GuessingGameManager {
     private final PrintWriter out;
-    private final BufferedReader in;
     private final ObjectMapper mapper = new ObjectMapper();
 
     // --------------- props ----------------
 
     private String gameLobby = "";
 
-    public GuessingGameManager(PrintWriter out, BufferedReader in) {
+    public GuessingGameManager(PrintWriter out) {
         this.out = out;
-        this.in = in;
     }
 
     // ------------------------------   MESSAGE HANDLERS   -------------------------------------------
@@ -80,7 +77,7 @@ public class GuessingGameManager {
         try {
             Leaderboard leaderboard = mapper.readValue(json, Leaderboard.class);
             coloredPrint(ANSI_YELLOW, "Game in lobby " + leaderboard.lobby() + " has ended! \n --- Scoreboard ---");
-            int index = 2;
+            int index = 1;
 
             List<Map.Entry<String, Long>> scores = new ArrayList<>(leaderboard.leaderboard().entrySet());
             // sort the scores to get the quickest time on the first place
@@ -89,10 +86,11 @@ public class GuessingGameManager {
             for (Map.Entry<String, Long> score : scores) {
                 if (scores.indexOf(score) == 0)
                     rainbowPrint(index + ".) " + scores.get(0).getKey() + ": " + scores.get(0).getValue() + "ms");
-                coloredPrint(ANSI_YELLOW, index + ".) " + score.getKey() + ": " + score.getValue() + "ms");
+                else
+                    coloredPrint(ANSI_YELLOW, index + ".) " + score.getKey() + ": " + score.getValue() + "ms");
                 index++;
             }
-            System.out.println("------------------");
+            coloredPrint(ANSI_YELLOW, "------------------");
             gameLobby = "";
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
@@ -123,9 +121,8 @@ public class GuessingGameManager {
         switch ((int) response.content()) {
             case -1 -> coloredPrint(ANSI_YELLOW, "Guess bigger!");
             case 0 -> coloredPrint(ANSI_YELLOW, "You have guessed the number!");
-            case 1 -> coloredPrint(ANSI_YELLOW, "Guess lesser!");
+            case 1 -> coloredPrint(ANSI_YELLOW, "Guess less!");
         }
     }
-
 
 }

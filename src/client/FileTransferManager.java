@@ -18,7 +18,6 @@ import static colors.ANSIColors.*;
 public class FileTransferManager {
 
     private final PrintWriter out;
-    private final BufferedReader in;
     private final ObjectMapper mapper = new ObjectMapper();
     // --------------- props ----------------
     private FileTransferRequest latestFTR;
@@ -34,10 +33,9 @@ public class FileTransferManager {
     // ^^^ LARGE BUILD TIMES. MAYBE SHOULD HAVE CONSIDERED AN .env OR USING A PATH VARIABLE^^^
     private final static String EXTENSION_SPLITTING_REGEXP = "\\.(?=[^.]*$)";
 
-    public FileTransferManager(PrintWriter out, BufferedReader in, String address) {
+    public FileTransferManager(PrintWriter out, String address) {
         this.SERVER_ADDRESS = address;
         this.out = out;
-        this.in = in;
     }
 
 

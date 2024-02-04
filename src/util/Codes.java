@@ -19,12 +19,13 @@ public class Codes {
             // 840-849 reserved for user list related errors
             // 850-859 reserved for game related errors
             entry(850, "You can't create a lobby with name %s. Use only latin letters and numbers"),
+            entry(857, "Game with name %s already exists"),
+            entry(855, "Can't join two games at the same time"),
+            entry(856, "You have already joined this game"),
             entry(851, "Cannot make a guess before the game starts!"),
             entry(852, "You are not in a game to send your guesses to"),
             entry(853, "Invalid guess provided. Only numbers are acceptable"),
             entry(854, "Your guess in not in the games range: %s"), // response.content(is the game range)
-            entry(855, "Can't join two games at the same time"),
-            entry(856, "You have already joined this game"),
             // 860-869 reserved for file transfer related errors,
             entry(860, "You have not received a file transfer request to accept or deny"),
             entry(861, "You cannot send a file to yourself"),

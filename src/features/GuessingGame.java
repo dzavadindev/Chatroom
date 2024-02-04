@@ -23,8 +23,8 @@ public class GuessingGame implements Runnable {
 
     // -----------------------------------   CONSTANTS   ------------------------------------------------
 
-    private final int COLLECTION_PERIOD = 20; // SECONDS
-    private final int GAME_TIMER = 4 * 60; // SECONDS
+    private final int COLLECTION_PERIOD = 10; // SECONDS
+    private final int GAME_TIMER = 2 * 60; // SECONDS
     private final int GAME_UPPER_BOUND = 50;
     private final int GAME_LOWER_BOUND = 1;
 
@@ -70,7 +70,6 @@ public class GuessingGame implements Runnable {
                     return false;
                 }
                 players.add(player);
-//              notifyEveryone(); // todo: should other players be informed of a new one joining?
                 player.sendResponse("GAME_JOIN", 800, lobbyName);
                 return true;
             } else {
@@ -101,6 +100,9 @@ public class GuessingGame implements Runnable {
                     player.sendResponse("GAME_GUESS", 800, -1);
                 else {
                     player.sendResponse("GAME_GUESS", 800, 0);
+                    players.stream()
+                            .filter(p -> !p.username.equals(player.username))
+                            .forEach(p -> p.sendMessageToClient("GAME_GUESSED " + wrapInJson("username", player.username)));
                     // nanoTime of System returns the current time to nanoseconds
                     // division by 1_000_000 is the conversion to milliseconds
                     long playerGuessTimeMs = (System.nanoTime() - startTime) / 1_000_000;
